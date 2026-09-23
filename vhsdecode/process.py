@@ -1300,9 +1300,18 @@ class VHSRFDecode(ldd.RFDecode):
         # Applies RF filters
         indata_fft *= self.Filters["RFVideo"]
 
-        raw_filtered = npfft.ifft(indata_fft * self.Filters["hilbert"]).real.astype(
-            np.single
-        )
+        # Most tape formats do not enable RF high boost.  In that case the
+        # analytic signal used here is also the one passed to the FM
+        # demodulator below, so retain it rather than doing the same inverse
+        # FFT twice.
+        hilbert = None
+        if self._high_boost is None:
+            hilbert = npfft.ifft(indata_fft * self.Filters["hilbert"])
+            raw_filtered = hilbert.real.astype(np.single)
+        else:
+            raw_filtered = npfft.ifft(
+                indata_fft * self.Filters["hilbert"]
+            ).real.astype(np.single)
 
         # Calculate an evelope with signal strength using absolute of hilbert transform.
         # Roll this a bit to compensate for filter delay, value eyballed for now.
@@ -1318,7 +1327,7 @@ class VHSRFDecode(ldd.RFDecode):
 
         # Boost high frequencies in areas where the signal is weak to reduce missed zero crossings
         # on sharp transitions. Using filtfilt to avoid phase issues.
-        if len(np.where(env == 0)[0]) == 0:  # checks for zeroes on env
+        if not np.any(env == 0):  # checks for zeroes on env
             if self._high_boost is not None:
                 data_filtered = npfft.ifft(indata_fft).real
                 high_part = sosfiltfilt_rust(self.Filters["RFTop"], data_filtered) * (
@@ -1329,7 +1338,8 @@ class VHSRFDecode(ldd.RFDecode):
         else:
             ldd.logger.warning("RF signal is weak. Is your deck tracking properly?")
 
-        hilbert = npfft.ifft(indata_fft * self.Filters["hilbert"])
+        if hilbert is None:
+            hilbert = npfft.ifft(indata_fft * self.Filters["hilbert"])
 
         if not demod_block_debug:
             del indata_fft
