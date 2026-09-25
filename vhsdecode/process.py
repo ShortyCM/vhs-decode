@@ -1327,16 +1327,16 @@ class VHSRFDecode(ldd.RFDecode):
 
         # Boost high frequencies in areas where the signal is weak to reduce missed zero crossings
         # on sharp transitions. Using filtfilt to avoid phase issues.
-        if not np.any(env == 0):  # checks for zeroes on env
-            if self._high_boost is not None:
+        if self._high_boost is not None:
+            if not np.any(env == 0):  # checks for zeroes on env
                 data_filtered = npfft.ifft(indata_fft).real
                 high_part = sosfiltfilt_rust(self.Filters["RFTop"], data_filtered) * (
                     (env_mean * 0.9) / env
                 )
                 del data_filtered
                 indata_fft += npfft.fft(high_part * self._high_boost)
-        else:
-            ldd.logger.warning("RF signal is weak. Is your deck tracking properly?")
+            else:
+                ldd.logger.warning("RF signal is weak. Is your deck tracking properly?")
 
         if hilbert is None:
             hilbert = npfft.ifft(indata_fft * self.Filters["hilbert"])
