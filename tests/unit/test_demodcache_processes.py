@@ -10,6 +10,7 @@ from vhsdecode.compute_video_filters import (
     SubEmphasisParams,
     create_sub_emphasis_params,
 )
+from vhsdecode.demodcache import DemodCacheTape
 from vhsdecode.process_types import Options, SysparamsConst
 
 
@@ -28,6 +29,30 @@ class _IdleDemodCache(DemodCache):
         while True:
             if self.q_in.get() is None:
                 return
+
+
+class _FakeVHSRF:
+    pass
+
+
+def test_tape_worker_rf_copy_only_contains_demodulation_state():
+    rf = _FakeVHSRF()
+    for attribute in DemodCacheTape._WORKER_RF_ATTRIBUTES:
+        setattr(rf, attribute, attribute)
+    rf.secam_servo_avg = threading.Lock()
+    rf.decoder = threading.Lock()
+    rf._processing_thread_pool = threading.Lock()
+    rf.debug_plot = threading.Lock()
+
+    cache = DemodCacheTape.__new__(DemodCacheTape)
+    cache.rf = rf
+    worker_rf = cache._make_worker_rf_copy()
+
+    assert worker_rf.__dict__ == {
+        attribute: attribute
+        for attribute in DemodCacheTape._WORKER_RF_ATTRIBUTES
+    } | {"debug_plot": None}
+    assert pickle.loads(pickle.dumps(worker_rf)).__dict__ == worker_rf.__dict__
 
 
 def test_vhs_decoder_namedtuples_are_pickleable_by_name():

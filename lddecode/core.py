@@ -1209,15 +1209,22 @@ class DemodCache:
         # destructor from running the parent cache shutdown path.
         worker.ended = True
 
-        # VHSRFDecode points back to VHSDecode and retains its thread pool.
-        # Neither is used by demodblock, and both lead back to unpickleable
-        # state such as the open input stream.  Copy the decoder configuration
-        # while severing those process-local references.
-        worker.rf = copy.copy(self.rf)
-        worker.rf.__dict__ = self.rf.__dict__.copy()
-        worker.rf.__dict__.pop("decoder", None)
-        worker.rf.__dict__.pop("_processing_thread_pool", None)
+        # Copy only the decoder state needed on the worker side. Subclasses
+        # with a larger RF object graph can define a narrower process boundary.
+        worker.rf = self._make_worker_rf_copy()
         return worker
+
+    def _make_worker_rf_copy(self):
+        """Return the RF state needed by a demodulation worker.
+
+        Subclasses can narrow this process boundary when their RF decoder owns
+        unrelated or process-local state.
+        """
+        worker_rf = copy.copy(self.rf)
+        worker_rf.__dict__ = self.rf.__dict__.copy()
+        worker_rf.__dict__.pop("decoder", None)
+        worker_rf.__dict__.pop("_processing_thread_pool", None)
+        return worker_rf
 
     def _initialize_worker(self):
         """Initialize process-local resources before processing queue items."""
