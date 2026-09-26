@@ -63,7 +63,8 @@ def _vhs_demod_process(input_queue, output_queue, rf_class, rf_state):
             shm = shared_memory.SharedMemory(name=shm_name)
             try:
                 data = np.ndarray(shape, dtype=np.dtype(dtype_str), buffer=shm.buf)
-                output = rf.demodblock(
+                output = {}
+                output["demod"] = rf.demodblock(
                     data=data,
                     fftdata=None,
                     mtf_level=0,
