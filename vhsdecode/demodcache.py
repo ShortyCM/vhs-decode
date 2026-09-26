@@ -1,4 +1,5 @@
 import multiprocessing
+import os
 import threading
 import time
 import types
@@ -52,6 +53,7 @@ def _vhs_demod_process(worker_index, input_queue, output_queue, rf_class, rf_sta
     rf = rf_class.__new__(rf_class)
     rf.__dict__.update(rf_state)
     result_segments = {}
+    traced_jobs = 0
 
     while True:
         item = input_queue.get()
@@ -82,6 +84,11 @@ def _vhs_demod_process(worker_index, input_queue, output_queue, rf_class, rf_sta
 
         if item[0] == "DEMOD_SHM":
             _, token, blocknum, shm_name, shape, dtype_str, request = item
+            if traced_jobs < 8:
+                print(
+                    f"MP worker {worker_index} pid {os.getpid()} received block {blocknum} at {time.perf_counter():.6f}",
+                    flush=True,
+                )
             shm = shared_memory.SharedMemory(name=shm_name)
             try:
                 data = np.ndarray(shape, dtype=np.dtype(dtype_str), buffer=shm.buf)
@@ -91,6 +98,12 @@ def _vhs_demod_process(worker_index, input_queue, output_queue, rf_class, rf_sta
                     mtf_level=0,
                     cut=True,
                 )
+                if traced_jobs < 8:
+                    print(
+                        f"MP worker {worker_index} pid {os.getpid()} finished block {blocknum} at {time.perf_counter():.6f}",
+                        flush=True,
+                    )
+                traced_jobs += 1
             finally:
                 shm.close()
 
@@ -150,6 +163,7 @@ class _VHSJobDispatcher:
         self.next_worker = 0
         self.next_token = 0
         self.shared_inputs = {}
+        self.traced_jobs = 0
 
     def _select_queue(self):
         queue = self.worker_queues[self.next_worker]
@@ -181,7 +195,15 @@ class _VHSJobDispatcher:
         if kind == "DEMOD":
             blocknum, block, _, request = item[1:]
             token, name, shape, dtype_str = self._share_array(block["rawinput"])
-            self._select_queue().put(
+            worker_index = self.next_worker
+            queue = self._select_queue()
+            if self.traced_jobs < 32:
+                print(
+                    f"MP parent dispatch block {blocknum} -> worker {worker_index} at {time.perf_counter():.6f}",
+                    flush=True,
+                )
+                self.traced_jobs += 1
+            queue.put(
                 ("DEMOD_SHM", token, blocknum, name, shape, dtype_str, request)
             )
             return
