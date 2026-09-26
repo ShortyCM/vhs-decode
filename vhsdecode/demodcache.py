@@ -1,5 +1,4 @@
 import multiprocessing
-import os
 import threading
 import time
 import types
@@ -53,7 +52,6 @@ def _vhs_demod_process(worker_index, input_queue, output_queue, rf_class, rf_sta
     rf = rf_class.__new__(rf_class)
     rf.__dict__.update(rf_state)
     result_segments = {}
-    traced_jobs = 0
 
     while True:
         item = input_queue.get()
@@ -84,11 +82,6 @@ def _vhs_demod_process(worker_index, input_queue, output_queue, rf_class, rf_sta
 
         if item[0] == "DEMOD_SHM":
             _, token, blocknum, shm_name, shape, dtype_str, request = item
-            if traced_jobs < 8:
-                print(
-                    f"MP worker {worker_index} pid {os.getpid()} received block {blocknum} at {time.perf_counter():.6f}",
-                    flush=True,
-                )
             shm = shared_memory.SharedMemory(name=shm_name)
             try:
                 data = np.ndarray(shape, dtype=np.dtype(dtype_str), buffer=shm.buf)
@@ -98,12 +91,6 @@ def _vhs_demod_process(worker_index, input_queue, output_queue, rf_class, rf_sta
                     mtf_level=0,
                     cut=True,
                 )
-                if traced_jobs < 8:
-                    print(
-                        f"MP worker {worker_index} pid {os.getpid()} finished block {blocknum} at {time.perf_counter():.6f}",
-                        flush=True,
-                    )
-                traced_jobs += 1
             finally:
                 shm.close()
 
@@ -163,12 +150,39 @@ class _VHSJobDispatcher:
         self.next_worker = 0
         self.next_token = 0
         self.shared_inputs = {}
-        self.traced_jobs = 0
+        self._timing_lock = threading.Lock()
+        self._active_demod_jobs = 0
+        self._demod_active_start = None
+        self._demod_active_seconds = 0.0
+        self._demod_jobs = 0
+        self._demod_periods = 0
 
     def _select_queue(self):
         queue = self.worker_queues[self.next_worker]
         self.next_worker = (self.next_worker + 1) % len(self.worker_queues)
         return queue
+
+    def _start_demod_job(self):
+        with self._timing_lock:
+            if self._active_demod_jobs == 0:
+                self._demod_active_start = time.perf_counter()
+                self._demod_periods += 1
+            self._active_demod_jobs += 1
+            self._demod_jobs += 1
+
+    def finish_demod_job(self):
+        with self._timing_lock:
+            self._active_demod_jobs -= 1
+            if self._active_demod_jobs == 0 and self._demod_active_start is not None:
+                self._demod_active_seconds += time.perf_counter() - self._demod_active_start
+                self._demod_active_start = None
+
+    def timing_summary(self):
+        with self._timing_lock:
+            seconds = self._demod_active_seconds
+            if self._active_demod_jobs and self._demod_active_start is not None:
+                seconds += time.perf_counter() - self._demod_active_start
+            return seconds, self._demod_jobs, self._demod_periods
 
     def _share_array(self, array):
         array = np.ascontiguousarray(array)
@@ -195,17 +209,16 @@ class _VHSJobDispatcher:
         if kind == "DEMOD":
             blocknum, block, _, request = item[1:]
             token, name, shape, dtype_str = self._share_array(block["rawinput"])
-            worker_index = self.next_worker
             queue = self._select_queue()
-            if self.traced_jobs < 32:
-                print(
-                    f"MP parent dispatch block {blocknum} -> worker {worker_index} at {time.perf_counter():.6f}",
-                    flush=True,
+            self._start_demod_job()
+            try:
+                queue.put(
+                    ("DEMOD_SHM", token, blocknum, name, shape, dtype_str, request)
                 )
-                self.traced_jobs += 1
-            queue.put(
-                ("DEMOD_SHM", token, blocknum, name, shape, dtype_str, request)
-            )
+            except Exception:
+                self.finish_demod_job()
+                self.release(token)
+                raise
             return
 
         if kind == "SYNC":
@@ -287,6 +300,7 @@ class _VHSResultQueue:
                     shm.close()
                     self.dispatcher.release_result(worker_index, shm_name)
 
+                self.dispatcher.finish_demod_job()
                 return (
                     blocknum,
                     {
@@ -408,7 +422,12 @@ class DemodCacheTape(DemodCache):
         if not self.ended:
             super(DemodCacheTape, self).end()
             if hasattr(self, "_job_dispatcher"):
+                seconds, jobs, periods = self._job_dispatcher.timing_summary()
                 self._job_dispatcher.close()
+                print(
+                    f"MP demod active time: {seconds:.3f} seconds "
+                    f"for {jobs} blocks across {periods} active periods"
+                )
 
     def worker(self, return_on_empty=False):
         blocksrun = 0
