@@ -1387,6 +1387,14 @@ class DemodCache:
                     if not prefetch:
                         self.waiting.add(b)
 
+        # Fill the input blocks before publishing any DEMOD work.  The loader
+        # is necessarily serialized (streaming loaders carry state), and used
+        # to publish one block at a time.  When loading a block takes as long
+        # as demodulating it, the first process can consequently drain every
+        # job before another process ever sees one.  A two-phase fill/publish
+        # gives the process queue a batch that its consumers can actually
+        # distribute.
+        loaded_blocks = []
         for b in queuelist:
             if reached_end:
                 break
@@ -1408,6 +1416,9 @@ class DemodCache:
 
                     self.blocks[b]['rawinput'] = rawdata
 
+            loaded_blocks.append(b)
+
+        for b in loaded_blocks:
             with self.lock:
                 self.blocks[b]['MTF']      = MTF
                 self.blocks[b]['request']  = self.request
