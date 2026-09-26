@@ -193,6 +193,16 @@ class VHSDecode(ldd.LDdecode):
             self.field_order_action = "none"
         self.duplicate_prev_field = True
 
+        self._pipeline_profile = {
+            "decode_wait": 0.0,
+            "downscale": 0.0,
+            "metrics": 0.0,
+            "buildmetadata": 0.0,
+            "writeout": 0.0,
+        }
+        self._pipeline_profile_fields = 0
+        self._pipeline_profile_printed = False
+
         # For tape, it is recommended to use `--ire0_adjust` to fix brightness variations between lines
         # This method usually gives false positives for noisy signals, so smooth the correction out by an entire field to avoid banding
         if self.wow_level_adjust_smoothing is None:
@@ -405,6 +415,20 @@ class VHSDecode(ldd.LDdecode):
 
         if self._processing_thread_pool is not None:
             self._processing_thread_pool.shutdown(wait=True)
+
+        if not self._pipeline_profile_printed:
+            p = self._pipeline_profile
+            print(
+                "VHS pipeline timing: "
+                f"decode_wait={p['decode_wait']:.3f}s, "
+                f"downscale={p['downscale']:.3f}s, "
+                f"metrics={p['metrics']:.3f}s, "
+                f"buildmetadata={p['buildmetadata']:.3f}s, "
+                f"writeout={p['writeout']:.3f}s, "
+                f"fields={self._pipeline_profile_fields}"
+            )
+            self._pipeline_profile_printed = True
+
         super(VHSDecode, self).close()
 
     def computeMetricsPAL(self, metrics, f, fp=None):
@@ -476,7 +500,9 @@ class VHSDecode(ldd.LDdecode):
 
             else:
                 if self.decodethread and self.decodethread.ident:
+                    _profile_t0 = time.perf_counter()
                     self.decodethread.join()
+                    self._pipeline_profile["decode_wait"] += time.perf_counter() - _profile_t0
                     self.decodethread = None
 
                 # In non-threaded mode self.threadreturn was filled earlier...
@@ -522,14 +548,19 @@ class VHSDecode(ldd.LDdecode):
                 self.fieldstack.insert(0, None)
 
             if f and f.valid:
+                _profile_t0 = time.perf_counter()
                 picture, audio, efm = f.downscale(
                     linesout=self.output_lines,
                     final=True,
                     audio=self.analog_audio,
                     lastfieldwritten=self.lastFieldWritten,
                 )
+                self._pipeline_profile["downscale"] += time.perf_counter() - _profile_t0
 
+                _profile_t0 = time.perf_counter()
                 _ = self.computeMetrics(f, None, verbose=True)
+                self._pipeline_profile["metrics"] += time.perf_counter() - _profile_t0
+                self._pipeline_profile_fields += 1
                 # if "blackToWhiteRFRatio" in metrics and adjusted is False:
                 #    keep = 900 if self.isCLV else 30
                 #    self.bw_ratios.append(metrics["blackToWhiteRFRatio"])
@@ -595,22 +626,28 @@ class VHSDecode(ldd.LDdecode):
             if len(self.fieldinfo) == 0 and not f.isFirstField:
                 return f
 
+            _profile_t0 = time.perf_counter()
             fi, duplicateField, writeField = self.buildmetadata(f)
+            self._pipeline_profile["buildmetadata"] += time.perf_counter() - _profile_t0
 
             if writeField:
                 self.lastvalidfield[f.isFirstField] = (f, fi, picture, audio, efm)
 
             if duplicateField:
                 if self.lastvalidfield[not f.isFirstField] is not None:
+                    _profile_t0 = time.perf_counter()
                     self.writeout(self.lastvalidfield[not f.isFirstField])
                     self.writeout(self.lastvalidfield[f.isFirstField])
+                    self._pipeline_profile["writeout"] += time.perf_counter() - _profile_t0
 
                 # If this is the first field to be written, don't write anything
                 return f
 
             if writeField:
                 self.lastFieldWritten = (self.fields_written, f.readloc)
+                _profile_t0 = time.perf_counter()
                 self.writeout(self.lastvalidfield[f.isFirstField])
+                self._pipeline_profile["writeout"] += time.perf_counter() - _profile_t0
 
         return f
 
