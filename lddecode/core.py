@@ -1,5 +1,6 @@
 import copy
 import itertools
+import multiprocessing
 import os
 import platform
 import sqlite3
@@ -1153,8 +1154,18 @@ class DemodCache:
 
         self.blocks          = {}
 
-        self.q_in            = Queue()
-        self.q_out           = Queue()
+        # Demodulation is CPU-bound.  Threads serialize this work behind the
+        # GIL, so use process-safe queues and worker processes instead.  Keep
+        # the synchronous (zero-worker) path on regular queues: it deliberately
+        # executes worker() in the caller and does not need IPC.
+        if num_worker_threads:
+            self._process_context = multiprocessing.get_context()
+            self.q_in = self._process_context.Queue()
+            self.q_out = self._process_context.Queue()
+        else:
+            self._process_context = None
+            self.q_in = Queue()
+            self.q_out = Queue()
         self.waiting         = set()
         self.sync_waiting    = set()
         self.q_out_cv        = threading.Condition(self.lock)
@@ -1171,9 +1182,7 @@ class DemodCache:
         self.num_worker_threads = num_worker_threads
 
         for i in range(num_worker_threads):
-            t = threading.Thread(
-                target=self.worker, daemon=True, args=()
-            )
+            t = self._process_context.Process(target=self.worker, daemon=True)
             t.start()
             self.threads.append(t)
 
