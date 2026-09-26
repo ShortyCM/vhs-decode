@@ -1116,9 +1116,15 @@ class RFDecode:
 
 
 ''' The DemodCache class keeps track of each block of data, from the raw
-    input to the demodulated output.  This is threaded code and therefore
-    a bit of a mess, full of queues and locks and memory copies.
+    input to the demodulated output.  Demodulation runs in worker processes;
+    a coordinator thread receives their results and updates the cache.
 '''
+
+
+def _run_demodcache_worker(worker):
+    """Run a minimal, pickle-safe cache worker in a child process."""
+    worker._initialize_worker()
+    worker.worker()
 
 class DemodCache:
     def __init__(
@@ -1154,10 +1160,12 @@ class DemodCache:
 
         self.blocks          = {}
 
-        # Demodulation is CPU-bound.  Threads serialize this work behind the
-        # GIL, so use process-safe queues and worker processes instead.  Keep
-        # the synchronous (zero-worker) path on regular queues: it deliberately
-        # executes worker() in the caller and does not need IPC.
+        # Demodulation is CPU-bound.  Python threads would contend for the GIL
+        # and restrict this work to one CPU core, so each worker must be a
+        # separate process with its own interpreter and GIL.  A minimal worker
+        # copy works with every multiprocessing start method and prevents spawn
+        # and forkserver from trying to pickle the cache's input file, loader,
+        # locks, or parent decoder through the bound worker method.
         if num_worker_threads:
             self._process_context = multiprocessing.get_context()
             self.q_in = self._process_context.Queue()
@@ -1182,11 +1190,38 @@ class DemodCache:
         self.num_worker_threads = num_worker_threads
 
         for i in range(num_worker_threads):
-            t = self._process_context.Process(target=self.worker, daemon=True)
+            worker = self._make_worker_copy()
+            t = self._process_context.Process(
+                target=_run_demodcache_worker, args=(worker,), daemon=True
+            )
             t.start()
             self.threads.append(t)
 
         self.deqeue_thread.start()
+
+    def _make_worker_copy(self):
+        """Return only the state required by ``worker`` in another process."""
+        worker = self.__class__.__new__(self.__class__)
+        worker.q_in = self.q_in
+        worker.q_out = self.q_out
+        worker.MTF_tolerance = self.MTF_tolerance
+        # The lightweight object does not own queues or threads; prevent its
+        # destructor from running the parent cache shutdown path.
+        worker.ended = True
+
+        # VHSRFDecode points back to VHSDecode and retains its thread pool.
+        # Neither is used by demodblock, and both lead back to unpickleable
+        # state such as the open input stream.  Copy the decoder configuration
+        # while severing those process-local references.
+        worker.rf = copy.copy(self.rf)
+        worker.rf.__dict__ = self.rf.__dict__.copy()
+        worker.rf.__dict__.pop("decoder", None)
+        worker.rf.__dict__.pop("_processing_thread_pool", None)
+        return worker
+
+    def _initialize_worker(self):
+        """Initialize process-local resources before processing queue items."""
+        pass
 
     def end(self):
         if not self.ended:

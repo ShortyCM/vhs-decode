@@ -5,14 +5,14 @@ from vhsdecode.addons.gnuradioZMQ import ZMQSend, ZMQReceive
 
 class DemodCacheTape(DemodCache):
     def __init__(self, *args, **kwargs):
-        super(DemodCacheTape, self).__init__(*args, **kwargs)
+        # This must be available while the base class creates its minimal
+        # process worker copies.
         self._gnrc_afe = args[0].options.gnrc_afe
+        super(DemodCacheTape, self).__init__(*args, **kwargs)
         if self._gnrc_afe:
-            self.zmqsend = ZMQSend()
-            self.zmqreceive = ZMQReceive()
             print(
                 "Open GNURadio with ZMQ REQ source set at tcp://localhost:%d and ZMQ REP sink set at tcp://*:%d"
-                % (self.zmqsend.port, self.zmqreceive.port)
+                % (5555, 5556)
             )
             print(
                 "The data stream will be of the float type at 40MSPS (40MHz sample rate)"
@@ -24,6 +24,16 @@ class DemodCacheTape(DemodCache):
             print(
                 "You might want to do this in single threaded decode mode (-t 1 parameter) - TODO: might not work correctly with --no_resample yet."
             )
+
+    def _make_worker_copy(self):
+        worker = super(DemodCacheTape, self)._make_worker_copy()
+        worker._gnrc_afe = self._gnrc_afe
+        return worker
+
+    def _initialize_worker(self):
+        if self._gnrc_afe:
+            self.zmqsend = ZMQSend()
+            self.zmqreceive = ZMQReceive()
 
     def worker(self, return_on_empty=False):
         """Override to skip mtf stuff since that's laserdisc specific."""
