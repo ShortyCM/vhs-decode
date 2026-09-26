@@ -6,6 +6,10 @@ import threading
 import pytest
 
 from lddecode.core import DemodCache
+from vhsdecode.compute_video_filters import (
+    SubEmphasisParams,
+    create_sub_emphasis_params,
+)
 from vhsdecode.process_types import Options, SysparamsConst
 
 
@@ -35,6 +39,15 @@ def test_vhs_decoder_namedtuples_are_pickleable_by_name():
     assert pickle.loads(pickle.dumps(constants)) == constants
     assert Options.__module__ == "vhsdecode.process_types"
     assert SysparamsConst.__module__ == "vhsdecode.process_types"
+
+
+def test_sub_emphasis_params_are_pickleable_by_name():
+    """The nonlinear filter configuration is included in spawned RF workers."""
+    params = create_sub_emphasis_params({}, {}, 2, -40)
+
+    assert pickle.loads(pickle.dumps(params)) == params
+    assert type(params) is SubEmphasisParams
+    assert SubEmphasisParams.__module__ == "vhsdecode.compute_video_filters"
 
 
 def test_demodcache_uses_process_workers():

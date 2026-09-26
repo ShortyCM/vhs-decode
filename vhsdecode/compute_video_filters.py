@@ -18,11 +18,17 @@ NONLINEAR_STATIC_FACTOR_DEFAULT = None
 CHROMA_AUDIO_NOTCH_Q = 10
 
 
+# This type is part of VHSRFDecode's state and is sent to multiprocessing
+# workers.  It must be defined at module scope so spawn-based workers (notably
+# on Windows) can import it again while unpickling the decoder configuration.
+SubEmphasisParams = namedtuple(
+    "SubEmphasisParams",
+    "exponential_scaling scaling_1 scaling_2 logistic_mid logistic_rate static_factor deviation",
+)
+
+
 def create_sub_emphasis_params(rf_params, sys_params, hz_ire, vsync_ire):
-    return namedtuple(
-        "SubEmphasisParams",
-        "exponential_scaling scaling_1 scaling_2 logistic_mid logistic_rate static_factor deviation",
-    )(
+    return SubEmphasisParams(
         rf_params.get("nonlinear_exp_scaling", 0.25),
         rf_params.get("nonlinear_scaling_1", None),
         rf_params.get("nonlinear_scaling_2", None),
