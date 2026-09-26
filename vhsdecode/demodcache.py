@@ -4,6 +4,28 @@ from vhsdecode.addons.gnuradioZMQ import ZMQSend, ZMQReceive
 
 
 class DemodCacheTape(DemodCache):
+    # VHSRFDecode.demodblock only reads these attributes. In particular, field
+    # processing state such as SECAM servo averages, input/output objects, and
+    # thread pools must not cross the multiprocessing boundary.
+    _WORKER_RF_ATTRIBUTES = (
+        "DecoderParams",
+        "Filters",
+        "_chroma_trap",
+        "_disable_diff_demod",
+        "_do_cafc",
+        "_high_boost",
+        "_notch",
+        "_options",
+        "_sub_emphasis_params",
+        "_use_fsc_notch_filter",
+        "_video_eq",
+        "blockcut",
+        "blockcut_end",
+        "blocklen",
+        "chromaTrap",
+        "freq_hz",
+    )
+
     def __init__(self, *args, **kwargs):
         # This must be available while the base class creates its minimal
         # process worker copies.
@@ -29,6 +51,18 @@ class DemodCacheTape(DemodCache):
         worker = super(DemodCacheTape, self)._make_worker_copy()
         worker._gnrc_afe = self._gnrc_afe
         return worker
+
+    def _make_worker_rf_copy(self):
+        """Build a minimal VHSRFDecode shell for the demodulation process."""
+        worker_rf = self.rf.__class__.__new__(self.rf.__class__)
+        for attribute in self._WORKER_RF_ATTRIBUTES:
+            if hasattr(self.rf, attribute):
+                setattr(worker_rf, attribute, getattr(self.rf, attribute))
+
+        # Plotting is disabled whenever multiprocessing workers are requested,
+        # and plot controller objects need not (and often cannot) be pickled.
+        worker_rf.debug_plot = None
+        return worker_rf
 
     def _initialize_worker(self):
         if self._gnrc_afe:
