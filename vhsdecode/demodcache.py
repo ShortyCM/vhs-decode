@@ -63,34 +63,65 @@ def _vhs_demod_process(input_queue, output_queue, rf_class, rf_state):
             shm = shared_memory.SharedMemory(name=shm_name)
             try:
                 data = np.ndarray(shape, dtype=np.dtype(dtype_str), buffer=shm.buf)
-                output = {}
-                output["demod"] = rf.demodblock(
+                demod = rf.demodblock(
                     data=data,
                     fftdata=None,
                     mtf_level=0,
                     cut=True,
                 )
-                output["request"] = request
-                output["MTF"] = 0
-                output_queue.put((blocknum, output, token))
             finally:
                 shm.close()
+
+            video = np.ascontiguousarray(demod["video"])
+            result_shm = shared_memory.SharedMemory(create=True, size=video.nbytes)
+            try:
+                result = np.ndarray(video.shape, dtype=video.dtype, buffer=result_shm.buf)
+                result[...] = video
+                output_queue.put(
+                    (
+                        "DEMOD_RESULT_SHM",
+                        blocknum,
+                        token,
+                        result_shm.name,
+                        video.shape,
+                        video.dtype.descr,
+                        request,
+                    )
+                )
+            finally:
+                result_shm.close()
 
         elif item[0] == "SYNC_SHM":
             _, token, blocknum, shm_name, shape, dtype_str = item
             shm = shared_memory.SharedMemory(name=shm_name)
             try:
                 data = np.ndarray(shape, dtype=np.dtype(dtype_str), buffer=shm.buf)
-                output = {
-                    "sync": rf.demodblock_sync(
+                sync = np.ascontiguousarray(
+                    rf.demodblock_sync(
                         data=data,
                         fftdata=None,
                         cut=True,
                     )
-                }
-                output_queue.put((blocknum, output, token))
+                )
             finally:
                 shm.close()
+
+            result_shm = shared_memory.SharedMemory(create=True, size=sync.nbytes)
+            try:
+                result = np.ndarray(sync.shape, dtype=sync.dtype, buffer=result_shm.buf)
+                result[...] = sync
+                output_queue.put(
+                    (
+                        "SYNC_RESULT_SHM",
+                        blocknum,
+                        token,
+                        result_shm.name,
+                        sync.shape,
+                        sync.dtype.str,
+                    )
+                )
+            finally:
+                result_shm.close()
 
 
 class _VHSJobDispatcher:
@@ -186,10 +217,66 @@ class _VHSResultQueue:
         if result is None:
             return None
 
-        if isinstance(result, tuple) and len(result) == 3:
-            blocknum, output, token = result
-            self.dispatcher.release(token)
-            return blocknum, output
+        if isinstance(result, tuple) and result:
+            if result[0] == "DEMOD_RESULT_SHM":
+                (
+                    _,
+                    blocknum,
+                    token,
+                    shm_name,
+                    shape,
+                    dtype_descr,
+                    request,
+                ) = result
+                self.dispatcher.release(token)
+
+                shm = shared_memory.SharedMemory(name=shm_name)
+                try:
+                    video = np.ndarray(
+                        shape,
+                        dtype=np.dtype(dtype_descr),
+                        buffer=shm.buf,
+                    ).copy().view(np.recarray)
+                finally:
+                    shm.close()
+                    try:
+                        shm.unlink()
+                    except FileNotFoundError:
+                        pass
+
+                return (
+                    blocknum,
+                    {
+                        "demod": {"video": video},
+                        "request": request,
+                        "MTF": 0,
+                    },
+                )
+
+            if result[0] == "SYNC_RESULT_SHM":
+                _, blocknum, token, shm_name, shape, dtype_str = result
+                self.dispatcher.release(token)
+
+                shm = shared_memory.SharedMemory(name=shm_name)
+                try:
+                    sync = np.ndarray(
+                        shape,
+                        dtype=np.dtype(dtype_str),
+                        buffer=shm.buf,
+                    ).copy()
+                finally:
+                    shm.close()
+                    try:
+                        shm.unlink()
+                    except FileNotFoundError:
+                        pass
+
+                return blocknum, {"sync": sync}
+
+            if len(result) == 3:
+                blocknum, output, token = result
+                self.dispatcher.release(token)
+                return blocknum, output
 
         return result
 
