@@ -4,7 +4,6 @@ import numpy as np
 import traceback
 import scipy.signal as sps
 import threading
-from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor
 
 import lddecode.core as ldd
@@ -48,6 +47,7 @@ from vhsdecode import compute_video_filters as cvf
 from vhsdecode.demodcache import DemodCacheTape
 from vhsdecode.rust_utils import sosfiltfilt_rust
 from vhsdecode.dbwriter import DBWriter
+from vhsdecode.process_types import Options, SysparamsConst
 
 
 def is_secam(system: str):
@@ -737,41 +737,7 @@ class VHSRFDecode(ldd.RFDecode):
         # can't be changed later.
         # first depends on IRE/Hz so has to be set after that is properly set.
         # TODO: May want to split this up eventually
-        self._options = namedtuple(
-            "Options",
-            [
-                "diff_demod_check_value",
-                "tape_format",
-                "disable_comb",
-                "nldeemp",
-                "subdeemp",
-                "disable_right_hsync",
-                "disable_dc_offset",
-                "fallback_vsync",
-                "field_order_confidence",
-                "saved_levels",
-                "y_comb",
-                "write_chroma",
-                "color_under",
-                "chroma_deemphasis_filter",
-                "skip_hsync_refine",
-                "hsync_refine_use_threshold",
-                "export_raw_tbc",
-                "fm_audio_notch",
-                "chroma_audio_notch",
-                "chroma_offset",
-                "cti_mix",
-                "cti_width",
-                "ire0_adjust",
-                "gnrc_afe",
-                "relaxed_line0",
-                "detect_chroma_track_phase",
-                "enable_color_killer",
-                "disable_burst_hsync",
-                "disable_phase_correction",
-                "secam_carrier_servo",
-            ],
-        )(
+        self._options = Options(
             self.iretohz(100) * 2,
             tape_format,
             rf_options.get("disable_comb", False) or is_secam(system),
@@ -822,9 +788,7 @@ class VHSRFDecode(ldd.RFDecode):
 
         # As agc can alter these sysParams values, store a copy to then
         # initial value for reference.
-        self._sysparams_const = namedtuple(
-            "SysparamsConst", "hz_ire vsync_hz vsync_ire ire0 vsync_pulse_us"
-        )(
+        self._sysparams_const = SysparamsConst(
             self.SysParams["hz_ire"],
             self.iretohz(self.SysParams["vsync_ire"]),
             self.SysParams["vsync_ire"],
