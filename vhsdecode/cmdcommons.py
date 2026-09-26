@@ -413,6 +413,8 @@ def get_extra_options(args, checkagc=False):
         "wow_interpolation_method": args.wow_interpolation_method,
         "write_db": args.write_db
     }
+    if hasattr(args, "demod_trace"):
+        extra_options["demod_trace"] = args.demod_trace
     if checkagc:
         extra_options["useAGC"]: args.AGC and not args.noAGC
     return extra_options

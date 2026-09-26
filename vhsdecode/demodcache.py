@@ -1,6 +1,7 @@
 import time
 from lddecode.core import DemodCache
 from vhsdecode.addons.gnuradioZMQ import ZMQSend, ZMQReceive
+from vhsdecode.demod_trace import write_demod_trace
 
 
 class DemodCacheTape(DemodCache):
@@ -24,6 +25,7 @@ class DemodCacheTape(DemodCache):
         "blocklen",
         "chromaTrap",
         "freq_hz",
+        "_demod_trace_path",
     )
 
     def __init__(self, *args, **kwargs):
@@ -69,6 +71,23 @@ class DemodCacheTape(DemodCache):
             self.zmqsend = ZMQSend()
             self.zmqreceive = ZMQReceive()
 
+    def _trace_demod_result_received(self, result):
+        blocknum, output = result
+        write_demod_trace(
+            getattr(self.rf, "_demod_trace_path", None),
+            "parent_received",
+            block=blocknum,
+            request=output.get("request"),
+        )
+
+    def _trace_demod_job_queued(self, blocknum, request):
+        write_demod_trace(
+            getattr(self.rf, "_demod_trace_path", None),
+            "parent_queued",
+            block=blocknum,
+            request=request,
+        )
+
     def worker(self, return_on_empty=False):
         """Override to skip mtf stuff since that's laserdisc specific."""
         blocksrun = 0
@@ -87,6 +106,10 @@ class DemodCacheTape(DemodCache):
 
             if item[0] == "DEMOD":
                 blocknum, block, _, request = item[1:]
+                trace_path = getattr(rf, "_demod_trace_path", None)
+                write_demod_trace(
+                    trace_path, "worker_received", block=blocknum, request=request
+                )
 
                 if self._gnrc_afe:
                     raw_input = block["rawinput"]
@@ -102,6 +125,7 @@ class DemodCacheTape(DemodCache):
                     fftdata = block["fft"]
 
                 st = time.time()
+                rf._demod_trace_job = (blocknum, request)
                 output["demod"] = rf.demodblock(
                     data=block["rawinput"],
                     fftdata=fftdata,
@@ -115,5 +139,8 @@ class DemodCacheTape(DemodCache):
                 output["MTF"] = 0  # Not used so just set to 0 for time.
 
                 self.q_out.put((blocknum, output))
+                write_demod_trace(
+                    trace_path, "worker_returned", block=blocknum, request=request
+                )
             elif item[0] == "NEWPARAMS":
                 self.apply_newparams(item[1])
