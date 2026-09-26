@@ -1330,6 +1330,7 @@ class DemodCache:
                     if not prefetch:
                         self.waiting.add(b)
 
+        loaded_blocks = []
         for b in queuelist:
             if reached_end:
                 break
@@ -1351,6 +1352,9 @@ class DemodCache:
 
                     self.blocks[b]['rawinput'] = rawdata
 
+            loaded_blocks.append(b)
+
+        for b in loaded_blocks:
             with self.lock:
                 self.blocks[b]['MTF']      = MTF
                 self.blocks[b]['request']  = self.request
