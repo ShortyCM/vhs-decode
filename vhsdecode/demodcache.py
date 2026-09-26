@@ -171,11 +171,26 @@ class _VHSJobDispatcher:
             self._demod_jobs += 1
 
     def finish_demod_job(self):
+        summary = None
         with self._timing_lock:
             self._active_demod_jobs -= 1
             if self._active_demod_jobs == 0 and self._demod_active_start is not None:
                 self._demod_active_seconds += time.perf_counter() - self._demod_active_start
                 self._demod_active_start = None
+                if self._demod_periods % 1000 == 0:
+                    summary = (
+                        self._demod_active_seconds,
+                        self._demod_jobs,
+                        self._demod_periods,
+                    )
+
+        if summary is not None:
+            seconds, jobs, periods = summary
+            print(
+                f"MP demod active time: {seconds:.3f} seconds "
+                f"for {jobs} blocks across {periods} active periods",
+                flush=True,
+            )
 
     def timing_summary(self):
         with self._timing_lock:
