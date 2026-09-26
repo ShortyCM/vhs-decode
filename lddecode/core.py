@@ -1168,11 +1168,24 @@ class DemodCache:
         # locks, or parent decoder through the bound worker method.
         if num_worker_threads:
             self._process_context = multiprocessing.get_context()
-            self.q_in = self._process_context.Queue()
+            # A multiprocessing.Queue has one parent-side feeder thread.  DEMOD
+            # messages contain an entire RF block, so that feeder can take
+            # longer to pickle/publish one message than a worker takes to
+            # demodulate it.  With a shared input queue the worker which just
+            # finished consequently receives the next message too, while the
+            # other processes remain idle.  Give every worker its own queue so
+            # large blocks are transported independently and assign work in a
+            # round-robin.  This also makes the requested process parallelism
+            # explicit rather than relying on Queue reader wake-up fairness.
+            self.worker_queues = [
+                self._process_context.Queue() for _ in range(num_worker_threads)
+            ]
+            self.q_in = self.worker_queues[0]
             self.q_out = self._process_context.Queue()
         else:
             self._process_context = None
             self.q_in = Queue()
+            self.worker_queues = [self.q_in]
             self.q_out = Queue()
         self.waiting         = set()
         self.sync_waiting    = set()
@@ -1182,6 +1195,7 @@ class DemodCache:
         self.threads         = []
 
         self.request         = 0
+        self._next_worker    = 0
         self.ended           = False
 
         self.loader_lock   = threading.Lock()
@@ -1191,6 +1205,7 @@ class DemodCache:
 
         for i in range(num_worker_threads):
             worker = self._make_worker_copy()
+            worker.q_in = self.worker_queues[i]
             t = self._process_context.Process(
                 target=_run_demodcache_worker, args=(worker,), daemon=True
             )
@@ -1235,8 +1250,8 @@ class DemodCache:
         # restored any state.  It does not own workers in that case.
         if not getattr(self, "ended", True):
             # stop workers
-            for i in self.threads:
-                self.q_in.put(None)
+            for worker_queue in self.worker_queues:
+                worker_queue.put(None)
 
             for t in self.threads:
                 t.join()
@@ -1248,6 +1263,12 @@ class DemodCache:
             if hasattr(self.loader, "_close") and callable(self.loader._close):
                 self.loader._close()
             self.ended = True
+
+    def _queue_work(self, item):
+        """Send one job to a specific worker, distributing consecutive jobs."""
+        worker_queue = self.worker_queues[self._next_worker]
+        self._next_worker = (self._next_worker + 1) % len(self.worker_queues)
+        worker_queue.put(item)
 
     def __del__(self):
         # Queue.put() may need to start its feeder thread, which Python forbids
@@ -1388,12 +1409,11 @@ class DemodCache:
                         self.waiting.add(b)
 
         # Fill the input blocks before publishing any DEMOD work.  The loader
-        # is necessarily serialized (streaming loaders carry state), and used
-        # to publish one block at a time.  When loading a block takes as long
-        # as demodulating it, the first process can consequently drain every
-        # job before another process ever sees one.  A two-phase fill/publish
-        # gives the process queue a batch that its consumers can actually
-        # distribute.
+        # is necessarily serialized (streaming loaders carry state).  Once the
+        # batch is ready, _queue_work assigns its blocks to the independent
+        # worker queues; their feeder threads can then transport those large
+        # arrays concurrently rather than serializing every block through one
+        # multiprocessing.Queue feeder.
         loaded_blocks = []
         for b in queuelist:
             if reached_end:
@@ -1426,7 +1446,7 @@ class DemodCache:
                 self.blocks[b]['prefetch'] = prefetch
                 if not prefetch:
                     self.waiting.add(b)
-                self.q_in.put(("DEMOD", b, self.blocks[b], MTF, self.request))
+                self._queue_work(("DEMOD", b, self.blocks[b], MTF, self.request))
                 self._trace_demod_job_queued(b, self.request)
 
         return None if reached_end else need_blocks
@@ -1475,7 +1495,7 @@ class DemodCache:
                 block = self.blocks[blocknum]
                 if "sync" not in block and blocknum not in self.sync_waiting:
                     self.sync_waiting.add(blocknum)
-                    self.q_in.put(("SYNC", blocknum, block))
+                    self._queue_work(("SYNC", blocknum, block))
 
         while True:
             if self.num_worker_threads == 0:
@@ -1544,7 +1564,15 @@ class DemodCache:
                     logger.error(
                         "incomplete demodulated block placed on queue, block #%d", blocknum
                     )
-                    self.q_in.put((blocknum, self.blocks[blocknum], self.currentMTF, self.request))
+                    self._queue_work(
+                        (
+                            "DEMOD",
+                            blocknum,
+                            self.blocks[blocknum],
+                            self.currentMTF,
+                            self.request,
+                        )
+                    )
                     continue
 
                 if item['request'] == self.blocks[blocknum]['request']:
@@ -1642,8 +1670,8 @@ class DemodCache:
         return rv
 
     def setparams(self, params):
-        for p in self.threadpipes:
-            p[0].send(("NEWPARAMS", params))
+        for worker_queue in self.worker_queues:
+            worker_queue.put(("NEWPARAMS", params))
 
         # Apply params to the core thread, so they match up with the decoders
         self.apply_newparams(params)

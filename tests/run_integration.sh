@@ -141,7 +141,7 @@ input umatic_pal            PAL           UMATIC        17.898
 input vcr_pal               PAL           VCR           40.0
 input vhs_mesecam           MESECAM       VHS           17.898
 input vhs_nlinha            NLINHA        VHS           40.0
-input vhs_ntsc              NTSC          VHS           17.9
+input vhs_ntsc              NTSC          VHS           17.9  --demod_trace "$TEST_DATA_OUTPUT/vhs_ntsc.demod.jsonl"
 input vhs_ntsc_lp           NTSC          VHS           20.0  --ts LP
 input vhs_pal               PAL           VHS           40.0  --fallback_vsync --relaxed_line0
 input vhs_palm              PALM          VHS           40.0  --ts SLP
@@ -191,6 +191,13 @@ for _name in "${BASIC_TESTS[@]}"; do
     # assert_decode_output "$TEST_NAME" "$_name" "$_name"
     echo "::endgroup::"
 done
+
+# This trace comes from the complete decoder invocation above, using the real
+# VHS RF fixture.  Do not replace it with a stub workload: this check exists to
+# ensure that production demodulation itself runs concurrently in multiple
+# worker processes.
+python3 "$TEST_ROOT/integration/check_demod_trace.py" \
+    "$TEST_DATA_OUTPUT/vhs_ntsc.demod.jsonl" 2
 
 echo ""
 echo "=== Mutation tests ==="
