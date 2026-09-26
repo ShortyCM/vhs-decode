@@ -408,6 +408,14 @@ def main(args=None, use_gui=False):
         + ".",
     )
     debug_group.add_argument(
+        "--demod_trace",
+        metavar="JSONL_PATH",
+        help=(
+            "Write timestamped multiprocessing DEMOD lifecycle events to a JSON-lines "
+            "file for diagnosing worker utilization."
+        ),
+    )
+    debug_group.add_argument(
         "--drh",
         "--disable_right_hsync",
         dest="disable_right_hsync",
@@ -656,6 +664,10 @@ def main(args=None, use_gui=False):
     extra_options = get_extra_options(args, not use_gui)
     extra_options["params_file"] = args.params_file
     extra_options["orc"] = args.orc
+    if extra_options.get("demod_trace"):
+        extra_options["demod_trace"] = os.path.abspath(extra_options["demod_trace"])
+        with open(extra_options["demod_trace"], "w", encoding="ascii"):
+            pass
 
     # Wrap the LDdecode creation so that the signal handler is not taken by sub-threads,
     # allowing SIGINT/control-C's to be handled cleanly

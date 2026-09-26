@@ -1427,8 +1427,13 @@ class DemodCache:
                 if not prefetch:
                     self.waiting.add(b)
                 self.q_in.put(("DEMOD", b, self.blocks[b], MTF, self.request))
+                self._trace_demod_job_queued(b, self.request)
 
         return None if reached_end else need_blocks
+
+    def _trace_demod_job_queued(self, blocknum, request):
+        """Hook for format-specific diagnostics in the coordinator process."""
+        return None
 
     def _load_raw_block(self, blocknum):
         """Return a cached raw block without scheduling full demodulation."""
@@ -1519,6 +1524,8 @@ class DemodCache:
             if rv is None:
                 return
 
+            self._trace_demod_result_received(rv)
+
             with self.lock:
                 blocknum, item = rv
 
@@ -1557,6 +1564,10 @@ class DemodCache:
                     self.blocks[blocknum]["input"] = self.blocks[blocknum]["rawinput"][
                         self.rf.blockcut : -self.rf.blockcut_end
                     ]
+
+    def _trace_demod_result_received(self, result):
+        """Hook for format-specific diagnostics in the coordinator process."""
+        return None
 
     @profile
     def read(self, begin, length, MTF=0, getraw = False, forceredo=False):

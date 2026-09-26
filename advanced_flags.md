@@ -13,3 +13,30 @@ Advanced flags
 
 `--doDOD` enables *dropout correction*. Please note, this does not force vhs-decode to perform dropout correction; instead, it adds a flag to the output .json, leaving it to be performed in the next step (running any of the gen_vid_chroma scripts.)
 
+# Demodulation worker tracing
+
+`--demod_trace PATH` records the actual VHS multiprocessing path during a
+decode. The output is JSON Lines and is truncated when the decoder starts.
+Each record contains a monotonic nanosecond timestamp, PID, block number,
+request generation, and one of these events:
+
+* `parent_queued` — the coordinator submitted the DEMOD job;
+* `worker_received` — a worker process received it;
+* `demodblock_started` and `demodblock_finished` — the entry and exit of
+  `VHSRFDecode.demodblock` itself;
+* `worker_returned` — the worker put the result on the output queue; and
+* `parent_received` — the coordinator dequeue thread received the result.
+
+For example:
+
+```sh
+vhs-decode --threads 8 --demod_trace demod.jsonl input.raw output
+```
+
+Sort records by `time_ns` before comparing them. The interval from
+`parent_queued` to `worker_received` measures input-queue transport, the
+`demodblock_started` to `demodblock_finished` interval is useful computation,
+and `worker_returned` to `parent_received` measures result-queue transport.
+Counts of `demodblock_started` grouped by PID show which workers actually do
+useful work, while overlapping start/finish intervals show whether that work
+runs concurrently.

@@ -45,6 +45,7 @@ from vhsdecode.compute_video_filters import (
 )
 from vhsdecode import compute_video_filters as cvf
 from vhsdecode.demodcache import DemodCacheTape
+from vhsdecode.demod_trace import write_demod_trace
 from vhsdecode.rust_utils import sosfiltfilt_rust
 from vhsdecode.dbwriter import DBWriter
 from vhsdecode.process_types import Options, SysparamsConst
@@ -666,6 +667,7 @@ class VHSRFDecode(ldd.RFDecode):
         self._disable_diff_demod = rf_options.get("disable_diff_demod", False)
         self.useAGC = extra_options.get("useAGC", False)
         self.debug = extra_options.get("debug", False)
+        self._demod_trace_path = extra_options.get("demod_trace")
 
         # cafc measures a single carrier peak, which doesn't exist in the
         # line-alternating two-carrier SECAM FM chroma signal.
@@ -1239,6 +1241,13 @@ class VHSRFDecode(ldd.RFDecode):
     def demodblock(
         self, data=None, mtf_level=0, fftdata=None, cut=False, thread_benchmark=False
     ):
+        trace_job = getattr(self, "_demod_trace_job", (None, None))
+        write_demod_trace(
+            getattr(self, "_demod_trace_path", None),
+            "demodblock_started",
+            block=trace_job[0],
+            request=trace_job[1],
+        )
         rv = {}
         demod_block_debug = False
         demod_start_time = time.time()
@@ -1453,4 +1462,10 @@ class VHSRFDecode(ldd.RFDecode):
                 % (os.getpid(), (demod_end_time - demod_start_time) * 1e3)
             )
 
+        write_demod_trace(
+            getattr(self, "_demod_trace_path", None),
+            "demodblock_finished",
+            block=trace_job[0],
+            request=trace_job[1],
+        )
         return rv
