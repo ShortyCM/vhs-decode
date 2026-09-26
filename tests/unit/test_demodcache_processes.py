@@ -1,10 +1,12 @@
 import multiprocessing
 import os
+import pickle
 import threading
 
 import pytest
 
 from lddecode.core import DemodCache
+from vhsdecode.process_types import Options, SysparamsConst
 
 
 class _FakeRF:
@@ -22,6 +24,17 @@ class _IdleDemodCache(DemodCache):
         while True:
             if self.q_in.get() is None:
                 return
+
+
+def test_vhs_decoder_namedtuples_are_pickleable_by_name():
+    """Spawn workers must be able to import classes embedded in RF state."""
+    options = Options(*range(len(Options._fields)))
+    constants = SysparamsConst(*range(len(SysparamsConst._fields)))
+
+    assert pickle.loads(pickle.dumps(options)) == options
+    assert pickle.loads(pickle.dumps(constants)) == constants
+    assert Options.__module__ == "vhsdecode.process_types"
+    assert SysparamsConst.__module__ == "vhsdecode.process_types"
 
 
 def test_demodcache_uses_process_workers():

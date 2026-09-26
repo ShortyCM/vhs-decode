@@ -1224,7 +1224,9 @@ class DemodCache:
         pass
 
     def end(self):
-        if not self.ended:
+        # A failed spawn may ask Python to destroy an object before __init__ has
+        # restored any state.  It does not own workers in that case.
+        if not getattr(self, "ended", True):
             # stop workers
             for i in self.threads:
                 self.q_in.put(None)
@@ -1241,7 +1243,11 @@ class DemodCache:
             self.ended = True
 
     def __del__(self):
-        self.end()
+        # Queue.put() may need to start its feeder thread, which Python forbids
+        # once interpreter shutdown has begun.  Normal callers close the cache
+        # explicitly; finalization is only a best-effort fallback.
+        if not sys.is_finalizing():
+            self.end()
 
     def prune_cache(self):
         """ Prune the LRU cache.  Typically run when a new field is loaded """
