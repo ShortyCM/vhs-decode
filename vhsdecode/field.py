@@ -1141,6 +1141,7 @@ class FieldShared:
 
     def downscale(self, final=False, *args, **kwargs):
         dsout, dsaudio, dsefm = super(FieldShared, self).downscale(final=False, *args, **kwargs)
+        _profile_luma = dict(getattr(self, "_profile_downscale", {}))
 
         _profile_y_comb = 0.0
         _profile_hz_to_output = 0.0
@@ -1159,9 +1160,9 @@ class FieldShared:
             _profile_hz_to_output = time.perf_counter() - _profile_t0
             self.dspicture = dsout
 
-        if hasattr(self, "_profile_downscale"):
-            self._profile_downscale["y_comb"] = _profile_y_comb
-            self._profile_downscale["hz_to_output"] = _profile_hz_to_output
+        _profile_luma["y_comb"] = _profile_y_comb
+        _profile_luma["hz_to_output"] = _profile_hz_to_output
+        self._profile_luma_downscale = _profile_luma
 
         return dsout, dsaudio, dsefm
 
