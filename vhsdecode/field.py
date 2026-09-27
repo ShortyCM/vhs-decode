@@ -2147,7 +2147,7 @@ class FieldPALShared(FieldShared, ldd.FieldPAL):
         self.track_phase_set = False
         self.ire0_backporch = (96, 160)
         self.burst_detected_line = 0
-        self.fsc_ratio = self.rf.SysParams["outfreq"] / self.rf.SysParams["fsc_mhz"]
+        self.fsc_ratio = self.rf.fsc_ratio
 
     @staticmethod
     def _sync_to_burst(
@@ -2213,7 +2213,7 @@ class FieldPALShared(FieldShared, ldd.FieldPAL):
                 FieldPALShared._sync_to_burst(
                     linelocs,
                     self.outlinelen,
-                    self.rf.SysParams["fsc_mhz"] * 1e6,
+                    self.rf.fsc_hz,
                     self.fsc_ratio,
                     self.even_burst_phase_avg,
                     self.odd_burst_phase_avg,
@@ -2236,7 +2236,7 @@ class FieldNTSCShared(FieldShared, ldd.FieldNTSC):
         self.fieldPhaseID = None
         self.ire0_backporch = (74, 124)
         self.burst_detected_line = 0
-        self.fsc_ratio = self.rf.SysParams["outfreq"] / self.rf.SysParams["fsc_mhz"]
+        self.fsc_ratio = self.rf.fsc_ratio
 
 
     @staticmethod
@@ -2293,7 +2293,7 @@ class FieldNTSCShared(FieldShared, ldd.FieldNTSC):
                     FieldNTSCShared._sync_to_burst(
                         linelocs,
                         self.outlinelen,
-                        self.rf.SysParams["fsc_mhz"] * 1e6,
+                        self.rf.fsc_hz,
                         self.fsc_ratio,
                         self.burst_phase_avg,
                         self.phase_sequence,
@@ -2304,7 +2304,7 @@ class FieldNTSCShared(FieldShared, ldd.FieldNTSC):
                     FieldPALShared._sync_to_burst(
                         linelocs,
                         self.outlinelen,
-                        self.rf.SysParams["fsc_mhz"] * 1e6,
+                        self.rf.fsc_hz,
                         self.fsc_ratio,
                         self.even_burst_phase_avg,
                         self.odd_burst_phase_avg,
