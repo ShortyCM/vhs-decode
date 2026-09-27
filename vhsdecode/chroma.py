@@ -999,7 +999,7 @@ def decode_chroma_phase_rotation(
         burstarea,
         field.rf.fsc_wave,
         field.rf.fsc_cos_wave,
-        field.rf.SysParams['fsc_mhz'] * 1e6,
+        field.rf.fsc_hz,
         detect_chroma_track_phase,
         rotation_check_start_line, # check for track phase rotation around the headswitching area (bottom of field)
         field.rf.options.enable_color_killer,
@@ -1835,7 +1835,7 @@ def process_chroma(
         # shift the chroma to reverse group delay caused by the color under heterodyne filter
         # this is dependent on color framing, and is disabled if color framing is disabled
         # TODO: shift amount may need tuning / needs validation
-        chroma_subcarrier_delay_cycles = field.rf.SysParams['fsc_mhz'] * 1e6 / (2.0 * np.pi * field.rf.DecoderParams["color_under_carrier"])
+        chroma_subcarrier_delay_cycles = field.rf.fsc_hz / (2.0 * np.pi * field.rf.DecoderParams["color_under_carrier"])
         chroma_subcarrier_delay_samples = chroma_subcarrier_delay_cycles * 4
         chroma, _, _ = ldd.Field.downscale(
             field,
@@ -1931,7 +1931,7 @@ def process_chroma(
             outwidth,
             field.phase_sequence,
             field.rf.DecoderParams["color_under_carrier"],
-            field.rf.SysParams["fsc_mhz"] * 1e6,
+            field.rf.fsc_hz,
             target_phase_even,
             target_phase_odd,
         )
@@ -1987,7 +1987,7 @@ def process_chroma(
     else:
         uphet = filter_chroma_fft(
             uphet,
-            field.rf.SysParams["fsc_mhz"] * 1e6,
+            field.rf.fsc_hz,
             field.rf.DecoderParams["color_under_carrier"],
             1.3e6, # lower chroma bandwidth (roughly this for PAL / NTSC)
             80.0   # heterodyne up-mixing attenuation
