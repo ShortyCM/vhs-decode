@@ -10,6 +10,7 @@ import sys
 import traceback
 
 import threading
+import time
 from queue import Queue
 from math import tau
 
@@ -186,18 +187,21 @@ def scale_field(buf, dsout, interpolated_pixel_locs, wowfactors, sinc_lut, lineo
 
 
 def scale_field_threaded(buf, dsout, interpolated_pixel_locs, wowfactors, sinc_lut, lineoffset, outwidth, executor, wow_level_adjust_smoothing = 0, level_adjust_threshold = 15, shift: float = 0.0):
+    _profile_t0 = time.perf_counter()
     level_adjusts = _scale_field_level_adjusts(
         wowfactors,
         outwidth,
         wow_level_adjust_smoothing,
         level_adjust_threshold,
     )
+    _profile_prep = time.perf_counter() - _profile_t0
 
     dsout_start = outwidth * (lineoffset + 1)
     dsout_end = len(dsout) + dsout_start
     workers = max(1, int(getattr(executor, "_max_workers", 1)))
 
     if workers == 1:
+        _profile_t0 = time.perf_counter()
         _scale_field_range(
             buf,
             dsout,
@@ -209,7 +213,7 @@ def scale_field_threaded(buf, dsout, interpolated_pixel_locs, wowfactors, sinc_l
             dsout_end,
             shift,
         )
-        return
+        return _profile_prep, time.perf_counter() - _profile_t0
 
     _scale_field_range(
         buf,
@@ -223,6 +227,7 @@ def scale_field_threaded(buf, dsout, interpolated_pixel_locs, wowfactors, sinc_l
         shift,
     )
 
+    _profile_t0 = time.perf_counter()
     count = dsout_end - dsout_start
     chunk_size = (count + workers - 1) // workers
     futures = []
@@ -249,6 +254,8 @@ def scale_field_threaded(buf, dsout, interpolated_pixel_locs, wowfactors, sinc_l
 
     for future in futures:
         future.result()
+
+    return _profile_prep, time.perf_counter() - _profile_t0
 
 
 frequency_suffixes = [
