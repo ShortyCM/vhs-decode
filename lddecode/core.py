@@ -2743,11 +2743,38 @@ class Field:
            and scale input samples to output samples
         """
         actual_linelocs = np.array(self.linelocs, dtype=np.float64)
-        expected_linelocs = np.array([i * self.inlinelen for i in range(len(actual_linelocs))], dtype=np.float64)
 
         outscale = self.inlinelen / self.outlinelen
         outsamples = self.outlinecount * self.outlinelen
         outline_offset = (self.lineoffset + 1) * self.outlinelen
+
+        # These coordinate grids depend only on fixed field geometry, not on
+        # the measured line locations. computewow_scaled() runs more than once
+        # per field, and the same grids are also rebuilt for every following
+        # field, so retain them on the RF decoder and reuse them while the
+        # geometry is unchanged.
+        grid_key = (
+            len(actual_linelocs),
+            self.inlinelen,
+            self.outlinelen,
+            self.outlinecount,
+            self.lineoffset,
+        )
+        grid_cache = getattr(self.rf, "_computewow_grid_cache", None)
+        if grid_cache is not None and grid_cache[0] == grid_key:
+            expected_linelocs = grid_cache[1]
+            scaled_pixel_locs = grid_cache[2]
+        else:
+            expected_linelocs = np.array(
+                [i * self.inlinelen for i in range(len(actual_linelocs))],
+                dtype=np.float64,
+            )
+            scaled_pixel_locs = np.arange(outsamples + outline_offset) * outscale
+            self.rf._computewow_grid_cache = (
+                grid_key,
+                expected_linelocs,
+                scaled_pixel_locs,
+            )
 
         if self.wow_interpolation_method == 'linear':
             k=1
@@ -2761,9 +2788,6 @@ class Field:
 
         # create a spline that interpolates the exact sample value based on expected vs. actual line locations
         spl = interpolate.make_interp_spline(expected_linelocs, actual_linelocs, k=k, bc_type=bc_type, check_finite=False)
-
-        # scale up to compute where the output pixel would fall on the interpolated line loc
-        scaled_pixel_locs = np.arange(outsamples + outline_offset) * outscale
 
         # interpolate the expected pixel location
         self.interpolated_pixel_locs = spl(scaled_pixel_locs)
