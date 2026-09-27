@@ -196,6 +196,10 @@ class VHSDecode(ldd.LDdecode):
         self._pipeline_profile = {
             "decode_wait": 0.0,
             "downscale": 0.0,
+            "downscale_wow": 0.0,
+            "downscale_scale_field": 0.0,
+            "downscale_output": 0.0,
+            "downscale_other": 0.0,
             "metrics": 0.0,
             "buildmetadata": 0.0,
             "writeout": 0.0,
@@ -421,7 +425,11 @@ class VHSDecode(ldd.LDdecode):
             print(
                 "VHS pipeline timing: "
                 f"decode_wait={p['decode_wait']:.3f}s, "
-                f"downscale={p['downscale']:.3f}s, "
+                f"downscale={p['downscale']:.3f}s "
+                f"(wow={p['downscale_wow']:.3f}s, "
+                f"scale_field={p['downscale_scale_field']:.3f}s, "
+                f"output={p['downscale_output']:.3f}s, "
+                f"other={p['downscale_other']:.3f}s), "
                 f"metrics={p['metrics']:.3f}s, "
                 f"buildmetadata={p['buildmetadata']:.3f}s, "
                 f"writeout={p['writeout']:.3f}s, "
@@ -556,6 +564,12 @@ class VHSDecode(ldd.LDdecode):
                     lastfieldwritten=self.lastFieldWritten,
                 )
                 self._pipeline_profile["downscale"] += time.perf_counter() - _profile_t0
+                _downscale_profile = getattr(f, "_profile_downscale", None)
+                if _downscale_profile is not None:
+                    self._pipeline_profile["downscale_wow"] += _downscale_profile["wow"]
+                    self._pipeline_profile["downscale_scale_field"] += _downscale_profile["scale_field"]
+                    self._pipeline_profile["downscale_output"] += _downscale_profile["output"]
+                    self._pipeline_profile["downscale_other"] += _downscale_profile["other"]
 
                 _profile_t0 = time.perf_counter()
                 _ = self.computeMetrics(f, None, verbose=True)
