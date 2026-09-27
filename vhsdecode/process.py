@@ -200,6 +200,8 @@ class VHSDecode(ldd.LDdecode):
             "downscale_scale_field": 0.0,
             "downscale_output": 0.0,
             "downscale_other": 0.0,
+            "downscale_y_comb": 0.0,
+            "downscale_hz_to_output": 0.0,
             "metrics": 0.0,
             "buildmetadata": 0.0,
             "writeout": 0.0,
@@ -428,8 +430,10 @@ class VHSDecode(ldd.LDdecode):
                 f"downscale={p['downscale']:.3f}s "
                 f"(wow={p['downscale_wow']:.3f}s, "
                 f"scale_field={p['downscale_scale_field']:.3f}s, "
-                f"output={p['downscale_output']:.3f}s, "
-                f"other={p['downscale_other']:.3f}s), "
+                f"base_output={p['downscale_output']:.3f}s, "
+                f"base_other={p['downscale_other']:.3f}s, "
+                f"y_comb={p['downscale_y_comb']:.3f}s, "
+                f"hz_to_output={p['downscale_hz_to_output']:.3f}s), "
                 f"metrics={p['metrics']:.3f}s, "
                 f"buildmetadata={p['buildmetadata']:.3f}s, "
                 f"writeout={p['writeout']:.3f}s, "
@@ -570,6 +574,8 @@ class VHSDecode(ldd.LDdecode):
                     self._pipeline_profile["downscale_scale_field"] += _downscale_profile["scale_field"]
                     self._pipeline_profile["downscale_output"] += _downscale_profile["output"]
                     self._pipeline_profile["downscale_other"] += _downscale_profile["other"]
+                    self._pipeline_profile["downscale_y_comb"] += _downscale_profile.get("y_comb", 0.0)
+                    self._pipeline_profile["downscale_hz_to_output"] += _downscale_profile.get("hz_to_output", 0.0)
 
                 _profile_t0 = time.perf_counter()
                 _ = self.computeMetrics(f, None, verbose=True)
