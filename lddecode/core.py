@@ -2849,6 +2849,8 @@ class Field:
         _profile_wow = time.perf_counter() - _profile_t0
 
         _profile_t0 = time.perf_counter()
+        _profile_scale_prep = 0.0
+        _profile_scale_resample = 0.0
         if scale_executor is None:
             scale_field(
                 self.data["video"][channel].astype(np.float32, copy=False),
@@ -2862,7 +2864,7 @@ class Field:
                 shift=shift
             )
         else:
-            scale_field_threaded(
+            _profile_scale_prep, _profile_scale_resample = scale_field_threaded(
                 self.data["video"][channel].astype(np.float32, copy=False),
                 dsout,
                 interpolated_pixel_locs,
@@ -2900,6 +2902,8 @@ class Field:
         self._profile_downscale = {
             "wow": _profile_wow,
             "scale_field": _profile_scale_field,
+            "scale_prep": _profile_scale_prep,
+            "scale_resample": _profile_scale_resample,
             "output": _profile_output,
             "other": (
                 time.perf_counter()
