@@ -705,6 +705,10 @@ class VHSRFDecode(ldd.RFDecode):
         if params_file:
             override_params(self.SysParams, self.DecoderParams, params_file, ldd.logger)
 
+        # Fixed format values used repeatedly throughout field/chroma processing.
+        self.fsc_hz = self.SysParams["fsc_mhz"] * 1e6
+        self.fsc_ratio = self.SysParams["outfreq"] / self.SysParams["fsc_mhz"]
+
         # Make (intentionally) mutable copies of HZ<->IRE levels
         # (NOTE: used by upstream functions, we use a namedtuple to keep const values already)
         self.DecoderParams["ire0"] = self.SysParams["ire0"]
