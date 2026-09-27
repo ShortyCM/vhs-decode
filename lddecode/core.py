@@ -2923,23 +2923,28 @@ class Field:
     def decodephillipscode(self, linenum):
         linestart = self.linelocs[linenum]
         data = self.data["video"]["demod"]
+        ire50_hz = self.rf.iretohz(50)
+        half_usec = self.usectoinpx(0.5)
+        next_zc_offset = self.usectoinpx(1.9)
+        next_zc_count = int(self.usectoinpx(0.2))
+
         curzc = calczc(
             data,
             int(linestart + self.usectoinpx(2)),
-            self.rf.iretohz(50),
+            ire50_hz,
             count=int(self.usectoinpx(12)),
         )
 
         zc = []
         while curzc is not None:
             zc.append(
-                (curzc, data[int(curzc - self.usectoinpx(0.5))] < self.rf.iretohz(50))
+                (curzc, data[int(curzc - half_usec)] < ire50_hz)
             )
             curzc = calczc(
                 data,
-                curzc + self.usectoinpx(1.9),
-                self.rf.iretohz(50),
-                count=int(self.usectoinpx(0.2)),
+                curzc + next_zc_offset,
+                ire50_hz,
+                count=next_zc_count,
             )
 
         usecgap = self.inpxtousec(np.diff([z[0] for z in zc]))
