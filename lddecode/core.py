@@ -2864,7 +2864,9 @@ class Field:
                 # return values will still be in audio_rv later
                 downscale_audio(*dsa_args)
 
-        dsout = np.zeros((linesout * outwidth), dtype=np.float32)
+        # scale_field_apply() writes every element of dsout, so zero-filling
+        # this buffer first only adds an unnecessary full-array write.
+        dsout = np.empty((linesout * outwidth), dtype=np.float32)
         if (
             reuse_scale_state
             and hasattr(self, "interpolated_pixel_locs")
