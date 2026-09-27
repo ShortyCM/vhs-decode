@@ -2783,7 +2783,8 @@ class Field:
         final=False,
         lastfieldwritten=None,
         shift: float = 0.0,
-        scale_executor=None
+        scale_executor=None,
+        reuse_scale_state=False
     ):
         _profile_downscale_start = time.perf_counter()
 
@@ -2845,12 +2846,28 @@ class Field:
         dsout = np.zeros((linesout * outwidth), dtype=np.float32)
 
         _profile_t0 = time.perf_counter()
-        interpolated_pixel_locs, wowfactors = self.computewow_scaled()
+        if (
+            reuse_scale_state
+            and hasattr(self, "_scale_field_interpolated_pixel_locs")
+            and hasattr(self, "_scale_field_wowfactors")
+        ):
+            interpolated_pixel_locs = self._scale_field_interpolated_pixel_locs
+            wowfactors = self._scale_field_wowfactors
+        else:
+            interpolated_pixel_locs, wowfactors = self.computewow_scaled()
+            if scale_executor is not None:
+                self._scale_field_interpolated_pixel_locs = interpolated_pixel_locs
+                self._scale_field_wowfactors = wowfactors
         _profile_wow = time.perf_counter() - _profile_t0
 
         _profile_t0 = time.perf_counter()
         _profile_scale_prep = 0.0
         _profile_scale_resample = 0.0
+        _scale_level_adjusts = (
+            getattr(self, "_scale_field_level_adjusts", None)
+            if reuse_scale_state
+            else None
+        )
         if scale_executor is None:
             scale_field(
                 self.data["video"][channel].astype(np.float32, copy=False),
@@ -2864,7 +2881,11 @@ class Field:
                 shift=shift
             )
         else:
-            _profile_scale_prep, _profile_scale_resample = scale_field_threaded(
+            (
+                _profile_scale_prep,
+                _profile_scale_resample,
+                _scale_level_adjusts,
+            ) = scale_field_threaded(
                 self.data["video"][channel].astype(np.float32, copy=False),
                 dsout,
                 interpolated_pixel_locs,
@@ -2874,8 +2895,11 @@ class Field:
                 outwidth,
                 scale_executor,
                 wow_level_adjust_smoothing=self.wow_level_adjust_smoothing,
-                shift=shift
+                shift=shift,
+                level_adjusts=_scale_level_adjusts,
             )
+            if not reuse_scale_state:
+                self._scale_field_level_adjusts = _scale_level_adjusts
         _profile_scale_field = time.perf_counter() - _profile_t0
 
         if self.rf.decode_digital_audio:
