@@ -1141,15 +1141,26 @@ class FieldShared:
     def downscale(self, final=False, *args, **kwargs):
         dsout, dsaudio, dsefm = super(FieldShared, self).downscale(final=False, *args, **kwargs)
 
+        _profile_y_comb = 0.0
+        _profile_hz_to_output = 0.0
+
         # hpf = utils.filter_simple(dsout, self.rf.Filters["NLHighPass"])
         # dsout = ynr(dsout, hpf, self.outlinelen)
         y_comb_value = self.rf.options.y_comb
         if y_comb_value != 0:
+            _profile_t0 = time.perf_counter()
             dsout = y_comb(dsout, self.outlinelen, y_comb_value)
+            _profile_y_comb = time.perf_counter() - _profile_t0
 
         if final:
+            _profile_t0 = time.perf_counter()
             dsout = self.hz_to_output(dsout)
+            _profile_hz_to_output = time.perf_counter() - _profile_t0
             self.dspicture = dsout
+
+        if hasattr(self, "_profile_downscale"):
+            self._profile_downscale["y_comb"] = _profile_y_comb
+            self._profile_downscale["hz_to_output"] = _profile_hz_to_output
 
         return dsout, dsaudio, dsefm
 
