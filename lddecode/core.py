@@ -2977,8 +2977,11 @@ class Field:
                 count=next_zc_count,
             )
 
+        if len(zc) != 24:
+            return None
+
         usecgap = self.inpxtousec(np.diff([z[0] for z in zc]))
-        valid = len(zc) == 24 and np.min(usecgap) > 1.85 and np.max(usecgap) < 2.15
+        valid = np.min(usecgap) > 1.85 and np.max(usecgap) < 2.15
 
         if valid:
             bitset = [z[1] for z in zc]
