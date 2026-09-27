@@ -1441,21 +1441,27 @@ class VHSRFDecode(ldd.RFDecode):
             else data[: self.blocklen]
         )
 
+        debug_filtered_data = None
+
         if self.debug_plot and self.debug_plot.is_plot_requested("magdens"):
             from vhsdecode.debug_plot import plot_magnitude_density
 
+            debug_filtered_data = npfft.ifft(indata_fft).real
             plot_magnitude_density(
                 raw_data=data[: self.blocklen],
-                filtered_data=npfft.ifft(indata_fft).real,
+                filtered_data=debug_filtered_data,
                 rfdecode=self,
             )
 
         if demod_block_debug:
             from vhsdecode.debug_plot import plot_input_data
 
+            if debug_filtered_data is None:
+                debug_filtered_data = npfft.ifft(indata_fft).real
+
             plot_input_data(
                 raw_data=data,
-                filtered_data=npfft.ifft(indata_fft).real,
+                filtered_data=debug_filtered_data,
                 env=env,
                 env_mean=env_mean,
                 raw_fft=indata_fft_copy,
