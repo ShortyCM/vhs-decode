@@ -2954,15 +2954,27 @@ class Field:
         linestart = self.linelocs[linenum]
         data = self.data["video"]["demod"]
         ire50_hz = self.rf.iretohz(50)
-        half_usec = self.usectoinpx(0.5)
-        next_zc_offset = self.usectoinpx(1.9)
-        next_zc_count = int(self.usectoinpx(0.2))
+        phillips_timing_px = getattr(self.rf, "phillips_timing_px", None)
+        if phillips_timing_px is None:
+            half_usec = self.usectoinpx(0.5)
+            next_zc_offset = self.usectoinpx(1.9)
+            next_zc_count = int(self.usectoinpx(0.2))
+            first_zc_offset = self.usectoinpx(2)
+            first_zc_count = int(self.usectoinpx(12))
+        else:
+            (
+                half_usec,
+                next_zc_offset,
+                next_zc_count,
+                first_zc_offset,
+                first_zc_count,
+            ) = phillips_timing_px
 
         curzc = calczc(
             data,
-            int(linestart + self.usectoinpx(2)),
+            int(linestart + first_zc_offset),
             ire50_hz,
-            count=int(self.usectoinpx(12)),
+            count=first_zc_count,
         )
 
         zc = []

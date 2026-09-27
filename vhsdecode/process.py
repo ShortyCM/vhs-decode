@@ -713,6 +713,13 @@ class VHSRFDecode(ldd.RFDecode):
         # for every field. Preserve the exact default-line conversion used by
         # Field.usectoinpx(), but calculate the invariant values once here.
         default_linefreq = self.samplesperline * self.linelen
+        self.phillips_timing_px = (
+            0.5 * default_linefreq,
+            1.9 * default_linefreq,
+            int(0.2 * default_linefreq),
+            2 * default_linefreq,
+            int(12 * default_linefreq),
+        )
         self.pulse_hsync_len = self.SysParams["hsyncPulseUS"] * default_linefreq
         self.pulse_front_porch_len = (
             self.SysParams["activeVideoUS"][0]
