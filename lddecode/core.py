@@ -2862,6 +2862,8 @@ class Field:
 
         _profile_t0 = time.perf_counter()
         _profile_scale_prep = 0.0
+        _profile_scale_prep_stats = 0.0
+        _profile_scale_prep_smooth = 0.0
         _profile_scale_resample = 0.0
         _scale_level_adjusts = (
             getattr(self, "_scale_field_level_adjusts", None)
@@ -2883,6 +2885,8 @@ class Field:
         else:
             (
                 _profile_scale_prep,
+                _profile_scale_prep_stats,
+                _profile_scale_prep_smooth,
                 _profile_scale_resample,
                 _scale_level_adjusts,
             ) = scale_field_threaded(
@@ -2927,6 +2931,8 @@ class Field:
             "wow": _profile_wow,
             "scale_field": _profile_scale_field,
             "scale_prep": _profile_scale_prep,
+            "scale_prep_stats": _profile_scale_prep_stats,
+            "scale_prep_smooth": _profile_scale_prep_smooth,
             "scale_resample": _profile_scale_resample,
             "output": _profile_output,
             "other": (
