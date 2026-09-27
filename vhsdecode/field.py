@@ -1140,6 +1140,7 @@ class FieldShared:
         self.track_phase_set = True
 
     def downscale(self, final=False, *args, **kwargs):
+        kwargs["scale_executor"] = self.rf._processing_thread_pool
         dsout, dsaudio, dsefm = super(FieldShared, self).downscale(final=False, *args, **kwargs)
         _profile_luma = dict(getattr(self, "_profile_downscale", {}))
 
