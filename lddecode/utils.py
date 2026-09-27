@@ -117,7 +117,7 @@ sinc_phase_count = 2**16
 #     return table
 
 
-@njit(nogil=True, cache=True, fastmath=True, parallel=True)
+@njit(nogil=True, cache=True, fastmath=True)
 def scale_field(buf, dsout, interpolated_pixel_locs, wowfactors, sinc_lut, lineoffset, outwidth, wow_level_adjust_smoothing = 0, level_adjust_threshold = 15, shift: float = 0.0):
     # average out any unusual spikes in wow that happen on a per line basis
     # this indicates an hsync tbc error vs. being normal wow from playback speed variations
@@ -145,7 +145,7 @@ def scale_field(buf, dsout, interpolated_pixel_locs, wowfactors, sinc_lut, lineo
 
     dsout_start = outwidth * (lineoffset + 1)
     dsout_end = len(dsout) + dsout_start
-    for i in numba.prange(dsout_start, dsout_end):
+    for i in range(dsout_start, dsout_end):
         # compensates for the amplitude/frequency shift caused by FM demodulation under varying playback speed.
         level_adjust = level_adjusts[i]
 
