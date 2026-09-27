@@ -28,7 +28,7 @@ from . import efm_pll
 from . import ac3rf
 from .utils import ldf_pipe, traceback
 from .utils import nb_mean, nb_median, nb_round, nb_min, nb_max, nb_abs, nb_absmax, n_orgt
-from .utils import polar2z, sqsum, genwave, dsa_rescale_and_clip, scale, scale_field, rms
+from .utils import polar2z, sqsum, genwave, dsa_rescale_and_clip, scale, scale_field, scale_field_prepare, scale_field_apply, rms
 from .utils import findpeaks, findpulses, calczc, inrange, roundfloat
 from .utils import LRUupdate, clb_findbursts, angular_mean_helper, phase_distance
 from .utils import build_hilbert, unwrap_hilbert, emphasis_iir, filtfft
@@ -2783,7 +2783,7 @@ class Field:
         final=False,
         lastfieldwritten=None,
         shift: float = 0.0,
-        reuse_wow: bool = False
+        reuse_scale_state: bool = False
     ):
         if lineinfo is None:
             lineinfo = self.linelocs
@@ -2842,24 +2842,32 @@ class Field:
 
         dsout = np.zeros((linesout * outwidth), dtype=np.float32)
         if (
-            reuse_wow
+            reuse_scale_state
             and hasattr(self, "interpolated_pixel_locs")
             and hasattr(self, "wowfactors")
+            and hasattr(self, "_scale_field_level_adjusts")
         ):
             interpolated_pixel_locs = self.interpolated_pixel_locs
             wowfactors = self.wowfactors
+            level_adjusts = self._scale_field_level_adjusts
         else:
             interpolated_pixel_locs, wowfactors = self.computewow_scaled()
-        scale_field(
+            level_adjusts = scale_field_prepare(
+                wowfactors,
+                outwidth,
+                self.wow_level_adjust_smoothing,
+            )
+            self._scale_field_level_adjusts = level_adjusts
+
+        scale_field_apply(
             self.data["video"][channel].astype(np.float32, copy=False),
             dsout,
             interpolated_pixel_locs,
-            wowfactors,
+            level_adjusts,
             self.rf.downscale_sinc_lut,
             self.lineoffset,
             outwidth,
-            wow_level_adjust_smoothing=self.wow_level_adjust_smoothing,
-            shift=shift
+            shift
         )
 
         if self.rf.decode_digital_audio:
