@@ -818,7 +818,8 @@ def upconvert_chroma_phase_comp(
     color_under_carrier_fs,
     fsc,
     target_phase_even,
-    target_phase_odd
+    target_phase_odd,
+    local_idx=None,
 ):
     deg2rad_scale = np.pi / 180.0
     pi_over_two = np.pi / 2.0
@@ -835,7 +836,8 @@ def upconvert_chroma_phase_comp(
 
     # Pre-generate a local pixel coordinate array to help Numba vectorize
     # Computing on a local range [0, outwidth) helps the compiler reason about alignment
-    local_idx = np.arange(outwidth, dtype=np.float64)
+    if local_idx is None:
+        local_idx = np.arange(outwidth, dtype=np.float64)
 
     for idx in range(num_bursts):
         current_burst = phase_rotation_sequence[idx]
@@ -1934,6 +1936,7 @@ def process_chroma(
             field.rf.fsc_hz,
             target_phase_even,
             target_phase_odd,
+            field.rf.chroma_pixel_indices,
         )
         uphet = chroma
     else:

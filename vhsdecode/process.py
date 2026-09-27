@@ -708,6 +708,9 @@ class VHSRFDecode(ldd.RFDecode):
         # Fixed format values used repeatedly throughout field/chroma processing.
         self.fsc_hz = self.SysParams["fsc_mhz"] * 1e6
         self.fsc_ratio = self.SysParams["outfreq"] / self.SysParams["fsc_mhz"]
+        self.chroma_pixel_indices = np.arange(
+            self.SysParams["outlinelen"], dtype=np.float64
+        )
 
         # get_pulses() used to recompute these same time-to-sample conversions
         # for every field. Preserve the exact default-line conversion used by
