@@ -2743,23 +2743,6 @@ class Field:
            and scale input samples to output samples
         """
         actual_linelocs = np.array(self.linelocs, dtype=np.float64)
-        cache_key = (
-            self.inlinelen,
-            self.outlinelen,
-            self.outlinecount,
-            self.lineoffset,
-            self.wow_interpolation_method,
-            actual_linelocs.shape,
-            actual_linelocs.tobytes(),
-        )
-
-        if (
-            getattr(self, "_computewow_scaled_cache_key", None) == cache_key
-            and hasattr(self, "interpolated_pixel_locs")
-            and hasattr(self, "wowfactors")
-        ):
-            return self.interpolated_pixel_locs, self.wowfactors
-
         expected_linelocs = np.array([i * self.inlinelen for i in range(len(actual_linelocs))], dtype=np.float64)
 
         outscale = self.inlinelen / self.outlinelen
@@ -2786,7 +2769,6 @@ class Field:
         self.interpolated_pixel_locs = spl(scaled_pixel_locs)
         # amount of wow for each scaled pixel
         self.wowfactors = spl(scaled_pixel_locs, 1)
-        self._computewow_scaled_cache_key = cache_key
 
         return self.interpolated_pixel_locs, self.wowfactors
 
@@ -2800,7 +2782,8 @@ class Field:
         audio=0,
         final=False,
         lastfieldwritten=None,
-        shift: float = 0.0
+        shift: float = 0.0,
+        reuse_wow: bool = False
     ):
         if lineinfo is None:
             lineinfo = self.linelocs
@@ -2858,7 +2841,15 @@ class Field:
                 downscale_audio(*dsa_args)
 
         dsout = np.zeros((linesout * outwidth), dtype=np.float32)
-        interpolated_pixel_locs, wowfactors = self.computewow_scaled()
+        if (
+            reuse_wow
+            and hasattr(self, "interpolated_pixel_locs")
+            and hasattr(self, "wowfactors")
+        ):
+            interpolated_pixel_locs = self.interpolated_pixel_locs
+            wowfactors = self.wowfactors
+        else:
+            interpolated_pixel_locs, wowfactors = self.computewow_scaled()
         scale_field(
             self.data["video"][channel].astype(np.float32, copy=False),
             dsout,
