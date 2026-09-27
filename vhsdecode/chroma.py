@@ -1858,6 +1858,7 @@ def process_chroma(
             channel="demod_burst",
             shift=chroma_subcarrier_delay_samples * chroma_shift_direction,
             scale_executor=field.rf._processing_thread_pool,
+            reuse_scale_state=True,
         )
         _profile["tbc"] += time.perf_counter() - _profile_t0
 
