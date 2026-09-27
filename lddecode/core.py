@@ -1910,13 +1910,30 @@ class Field:
     @profile
     def get_timings(self):
         pulses = self.rawpulses
-        hsync_typical = self.usectoinpx(self.rf.SysParams["hsyncPulseUS"])
+        fixed_timing_px = getattr(self.rf, "fixed_timing_px", None)
+        if fixed_timing_px is None:
+            hsync_typical = self.usectoinpx(self.rf.SysParams["hsyncPulseUS"])
+            hsync_checkmin = self.usectoinpx(self.rf.SysParams["hsyncPulseUS"] - 1.75)
+            hsync_checkmax = self.usectoinpx(self.rf.SysParams["hsyncPulseUS"] + 2)
+            hsync_minus_0_5 = self.usectoinpx(-0.5)
+            hsync_plus_0_5 = self.usectoinpx(0.5)
+            eq_minus_0_5 = self.usectoinpx(self.rf.SysParams["eqPulseUS"] - 0.5)
+            eq_plus_0_5 = self.usectoinpx(self.rf.SysParams["eqPulseUS"] + 0.5)
+            vsync_half = self.usectoinpx(self.rf.SysParams["vsyncPulseUS"] * 0.5)
+            vsync_plus_1 = self.usectoinpx(self.rf.SysParams["vsyncPulseUS"] + 1)
+        else:
+            hsync_typical = fixed_timing_px["hsync_typical"]
+            hsync_checkmin = fixed_timing_px["hsync_checkmin"]
+            hsync_checkmax = fixed_timing_px["hsync_checkmax"]
+            hsync_minus_0_5 = fixed_timing_px["hsync_minus_0_5"]
+            hsync_plus_0_5 = fixed_timing_px["hsync_plus_0_5"]
+            eq_minus_0_5 = fixed_timing_px["eq_minus_0_5"]
+            eq_plus_0_5 = fixed_timing_px["eq_plus_0_5"]
+            vsync_half = fixed_timing_px["vsync_half"]
+            vsync_plus_1 = fixed_timing_px["vsync_plus_1"]
 
         # Some disks have odd sync levels resulting in short and/or long pulse lengths.
         # So, take the median hsync and adjust the expected values accordingly
-
-        hsync_checkmin = self.usectoinpx(self.rf.SysParams["hsyncPulseUS"] - 1.75)
-        hsync_checkmax = self.usectoinpx(self.rf.SysParams["hsyncPulseUS"] + 2)
 
         hlens = []
         for p in pulses:
@@ -1929,30 +1946,20 @@ class Field:
         else:
             LT["hsync_median"] = self.rf.SysParams["hsyncPulseUS"]
 
-        hsync_min = LT["hsync_median"] + self.usectoinpx(-0.5)
-        hsync_max = LT["hsync_median"] + self.usectoinpx(0.5)
+        hsync_min = LT["hsync_median"] + hsync_minus_0_5
+        hsync_max = LT["hsync_median"] + hsync_plus_0_5
 
         LT["hsync"] = (hsync_min, hsync_max)
 
         LT["hsync_offset"] = LT["hsync_median"] - hsync_typical
 
-        # ??? - replace self.usectoinpx with local timings?
-        eq_min = (
-            self.usectoinpx(self.rf.SysParams["eqPulseUS"] - 0.5) + LT["hsync_offset"]
-        )
-        eq_max = (
-            self.usectoinpx(self.rf.SysParams["eqPulseUS"] + 0.5) + LT["hsync_offset"]
-        )
+        eq_min = eq_minus_0_5 + LT["hsync_offset"]
+        eq_max = eq_plus_0_5 + LT["hsync_offset"]
 
         LT["eq"] = (eq_min, eq_max)
 
-        vsync_min = (
-            self.usectoinpx(self.rf.SysParams["vsyncPulseUS"] * 0.5)
-            + LT["hsync_offset"]
-        )
-        vsync_max = (
-            self.usectoinpx(self.rf.SysParams["vsyncPulseUS"] + 1) + LT["hsync_offset"]
-        )
+        vsync_min = vsync_half + LT["hsync_offset"]
+        vsync_max = vsync_plus_1 + LT["hsync_offset"]
 
         LT["vsync"] = (vsync_min, vsync_max)
 
