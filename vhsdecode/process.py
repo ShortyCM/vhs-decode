@@ -529,12 +529,6 @@ class VHSDecode(ldd.LDdecode):
                     lastfieldwritten=self.lastFieldWritten,
                 )
 
-                _ = self.computeMetrics(f, None, verbose=True)
-                # if "blackToWhiteRFRatio" in metrics and adjusted is False:
-                #    keep = 900 if self.isCLV else 30
-                #    self.bw_ratios.append(metrics["blackToWhiteRFRatio"])
-                #    self.bw_ratios = self.bw_ratios[-keep:]
-
                 redo = f.needrerun
                 if redo:
                     redo = self.fdoffset - offset
