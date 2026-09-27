@@ -1853,7 +1853,12 @@ def process_chroma(
         chroma_subcarrier_delay_cycles = field.rf.SysParams['fsc_mhz'] * 1e6 / (2.0 * np.pi * field.rf.DecoderParams["color_under_carrier"])
         chroma_subcarrier_delay_samples = chroma_subcarrier_delay_cycles * 4
         _profile_t0 = time.perf_counter()
-        chroma, _, _ = ldd.Field.downscale(field, channel="demod_burst", shift=chroma_subcarrier_delay_samples * chroma_shift_direction)
+        chroma, _, _ = ldd.Field.downscale(
+            field,
+            channel="demod_burst",
+            shift=chroma_subcarrier_delay_samples * chroma_shift_direction,
+            scale_executor=field.rf._processing_thread_pool,
+        )
         _profile["tbc"] += time.perf_counter() - _profile_t0
 
         # If chroma AFC is enabled
