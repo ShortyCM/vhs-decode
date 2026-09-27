@@ -4668,11 +4668,12 @@ class LDdecode:
 
         for l in f.rf.SysParams["LD_VITS_whitelocs"]:
             wl_slice = f.lineslice_tbc(*l)
-            # logger.info(l, np.mean(f.output_to_ire(f.dspicture[wl_slice])))
-            if inrange(np.mean(f.output_to_ire(f.dspicture[wl_slice])), 90, 110):
+            white_ire = np.mean(f.output_to_ire(f.dspicture[wl_slice]))
+            # logger.info(l, white_ire)
+            if inrange(white_ire, 90, 110):
                 f.whitesnr_slice = l
                 metrics["wSNR"] = self.calcpsnr(f, wl_slice)
-                metrics["whiteIRE"] = np.mean(f.output_to_ire(f.dspicture[wl_slice]))
+                metrics["whiteIRE"] = white_ire
 
                 rawslice = f.lineslice(*l)
                 rawdata = f.rawdata[
