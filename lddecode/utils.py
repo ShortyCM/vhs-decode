@@ -119,15 +119,34 @@ sinc_phase_count = 2**16
 
 
 @njit(nogil=True, cache=True, fastmath=True)
-def _scale_field_level_adjust_stats(wowfactors, level_adjust_threshold):
-    median = np.median(wowfactors)
-    mad = np.median(np.abs(wowfactors - median))
-    threshold = level_adjust_threshold * mad if mad > 0 else 0.001
+def _scale_field_median(wowfactors):
+    return np.median(wowfactors)
 
+
+@njit(nogil=True, cache=True, fastmath=True)
+def _scale_field_mad(wowfactors, median):
+    return np.median(np.abs(wowfactors - median))
+
+
+@njit(nogil=True, cache=True, fastmath=True)
+def _scale_field_clamp(wowfactors, median, mad, level_adjust_threshold):
+    threshold = level_adjust_threshold * mad if mad > 0 else 0.001
     return np.where(
         np.abs(wowfactors - median) > threshold,
         median,
         wowfactors
+    )
+
+
+@njit(nogil=True, cache=True, fastmath=True)
+def _scale_field_level_adjust_stats(wowfactors, level_adjust_threshold):
+    median = _scale_field_median(wowfactors)
+    mad = _scale_field_mad(wowfactors, median)
+    return _scale_field_clamp(
+        wowfactors,
+        median,
+        mad,
+        level_adjust_threshold,
     )
 
 
@@ -202,15 +221,27 @@ def scale_field(buf, dsout, interpolated_pixel_locs, wowfactors, sinc_lut, lineo
 
 
 def scale_field_threaded(buf, dsout, interpolated_pixel_locs, wowfactors, sinc_lut, lineoffset, outwidth, executor, wow_level_adjust_smoothing = 0, level_adjust_threshold = 15, shift: float = 0.0, level_adjusts=None):
-    _profile_prep_stats = 0.0
+    _profile_prep_median = 0.0
+    _profile_prep_mad = 0.0
+    _profile_prep_clamp = 0.0
     _profile_prep_smooth = 0.0
     if level_adjusts is None:
         _profile_t0 = time.perf_counter()
-        level_adjusts = _scale_field_level_adjust_stats(
+        median = _scale_field_median(wowfactors)
+        _profile_prep_median = time.perf_counter() - _profile_t0
+
+        _profile_t0 = time.perf_counter()
+        mad = _scale_field_mad(wowfactors, median)
+        _profile_prep_mad = time.perf_counter() - _profile_t0
+
+        _profile_t0 = time.perf_counter()
+        level_adjusts = _scale_field_clamp(
             wowfactors,
+            median,
+            mad,
             level_adjust_threshold,
         )
-        _profile_prep_stats = time.perf_counter() - _profile_t0
+        _profile_prep_clamp = time.perf_counter() - _profile_t0
 
         _profile_t0 = time.perf_counter()
         _scale_field_level_adjust_smooth(
@@ -220,6 +251,11 @@ def scale_field_threaded(buf, dsout, interpolated_pixel_locs, wowfactors, sinc_l
         )
         _profile_prep_smooth = time.perf_counter() - _profile_t0
 
+    _profile_prep_stats = (
+        _profile_prep_median
+        + _profile_prep_mad
+        + _profile_prep_clamp
+    )
     _profile_prep = _profile_prep_stats + _profile_prep_smooth
 
     dsout_start = outwidth * (lineoffset + 1)
@@ -239,7 +275,7 @@ def scale_field_threaded(buf, dsout, interpolated_pixel_locs, wowfactors, sinc_l
             dsout_end,
             shift,
         )
-        return _profile_prep, _profile_prep_stats, _profile_prep_smooth, time.perf_counter() - _profile_t0, level_adjusts
+        return _profile_prep, _profile_prep_stats, _profile_prep_median, _profile_prep_mad, _profile_prep_clamp, _profile_prep_smooth, time.perf_counter() - _profile_t0, level_adjusts
 
     _scale_field_range(
         buf,
@@ -281,7 +317,7 @@ def scale_field_threaded(buf, dsout, interpolated_pixel_locs, wowfactors, sinc_l
     for future in futures:
         future.result()
 
-    return _profile_prep, _profile_prep_stats, _profile_prep_smooth, time.perf_counter() - _profile_t0, level_adjusts
+    return _profile_prep, _profile_prep_stats, _profile_prep_median, _profile_prep_mad, _profile_prep_clamp, _profile_prep_smooth, time.perf_counter() - _profile_t0, level_adjusts
 
 
 frequency_suffixes = [
