@@ -709,6 +709,19 @@ class VHSRFDecode(ldd.RFDecode):
         self.fsc_hz = self.SysParams["fsc_mhz"] * 1e6
         self.fsc_ratio = self.SysParams["outfreq"] / self.SysParams["fsc_mhz"]
 
+        # get_pulses() used to recompute these same time-to-sample conversions
+        # for every field. Preserve the exact default-line conversion used by
+        # Field.usectoinpx(), but calculate the invariant values once here.
+        default_linefreq = self.samplesperline * self.linelen
+        self.pulse_hsync_len = self.SysParams["hsyncPulseUS"] * default_linefreq
+        self.pulse_front_porch_len = (
+            self.SysParams["activeVideoUS"][0]
+            - self.SysParams["hsyncPulseUS"]
+            - 2
+        ) * default_linefreq
+        self.pulse_line_len = round(self.SysParams["line_period"] * default_linefreq)
+        self.pulse_approx_transition = 0.22 * default_linefreq
+
         # Make (intentionally) mutable copies of HZ<->IRE levels
         # (NOTE: used by upstream functions, we use a namedtuple to keep const values already)
         self.DecoderParams["ire0"] = self.SysParams["ire0"]
