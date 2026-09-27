@@ -728,6 +728,28 @@ class VHSRFDecode(ldd.RFDecode):
             np.ones(pulse_window_size, dtype=np.float64) / pulse_window_size
         )
 
+        # get_timings() runs for every field, but these conversions all use
+        # the same default line frequency and fixed format parameters.
+        self.fixed_timing_px = {
+            "hsync_typical": self.SysParams["hsyncPulseUS"] * default_linefreq,
+            "hsync_checkmin": (self.SysParams["hsyncPulseUS"] - 1.75) * default_linefreq,
+            "hsync_checkmax": (self.SysParams["hsyncPulseUS"] + 2.0) * default_linefreq,
+            "hsync_minus_0_5": -0.5 * default_linefreq,
+            "hsync_plus_0_5": 0.5 * default_linefreq,
+            "eq_minus_0_5": (self.SysParams["eqPulseUS"] - 0.5) * default_linefreq,
+            "eq_plus_0_5": (self.SysParams["eqPulseUS"] + 0.5) * default_linefreq,
+            "vsync_half": (self.SysParams["vsyncPulseUS"] * 0.5) * default_linefreq,
+            "vsync_plus_1": (self.SysParams["vsyncPulseUS"] + 1.0) * default_linefreq,
+            "vhs_hsync_minus_0_7": -0.7 * default_linefreq,
+            "vhs_hsync_plus_0_7": 0.7 * default_linefreq,
+            "vhs_eq_min": (
+                self.SysParams["eqPulseUS"] - vhs_formats.EQ_PULSE_TOLERANCE
+            ) * default_linefreq,
+            "vhs_eq_max": (
+                self.SysParams["eqPulseUS"] + vhs_formats.EQ_PULSE_TOLERANCE
+            ) * default_linefreq,
+        }
+
         # Make (intentionally) mutable copies of HZ<->IRE levels
         # (NOTE: used by upstream functions, we use a namedtuple to keep const values already)
         self.DecoderParams["ire0"] = self.SysParams["ire0"]
