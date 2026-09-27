@@ -1841,7 +1841,7 @@ def process_chroma(
             field,
             channel="demod_burst",
             shift=chroma_subcarrier_delay_samples * chroma_shift_direction,
-            reuse_wow=True,
+            reuse_scale_state=True,
         )
 
         # If chroma AFC is enabled
