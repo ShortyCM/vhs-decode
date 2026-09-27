@@ -118,13 +118,10 @@ sinc_phase_count = 2**16
 
 
 @njit(nogil=True, cache=True, fastmath=True)
-def scale_field(buf, dsout, interpolated_pixel_locs, wowfactors, sinc_lut, lineoffset, outwidth, wow_level_adjust_smoothing = 0, level_adjust_threshold = 15, shift: float = 0.0):
-    # average out any unusual spikes in wow that happen on a per line basis
-    # this indicates an hsync tbc error vs. being normal wow from playback speed variations
-    # in this case for level adjusting we just want to fallback to the average wow to avoid a bright or dark line
+def _scale_field_level_adjusts(wowfactors, outwidth, wow_level_adjust_smoothing, level_adjust_threshold):
     median = np.median(wowfactors)
-    mad = np.median(np.abs(wowfactors - median)) # median absolute deviation
-    threshold = level_adjust_threshold * mad if mad > 0 else 0.001  # fallback for no variance
+    mad = np.median(np.abs(wowfactors - median))
+    threshold = level_adjust_threshold * mad if mad > 0 else 0.001
 
     level_adjusts = np.where(
         np.abs(wowfactors - median) > threshold,
@@ -133,35 +130,26 @@ def scale_field(buf, dsout, interpolated_pixel_locs, wowfactors, sinc_lut, lineo
     )
 
     if wow_level_adjust_smoothing > 0:
-        # removes oscillating brightness variations for video with lots of noise around the hsync pulses, i.e. noisy line locations result in noisy wow calculations
-        # applies a low pass filter that smooths any sudden brightness variations while still being reactive enough to compensate for low frequency wow
         alpha = 1 / (wow_level_adjust_smoothing * outwidth)
         one_minus_alpha = 1 - alpha
 
         for i in range(1, len(level_adjusts)):
             level_adjusts[i] = alpha * level_adjusts[i] + one_minus_alpha * level_adjusts[i-1]
 
+    return level_adjusts
+
+
+@njit(nogil=True, cache=True, fastmath=True)
+def _scale_field_range(buf, dsout, interpolated_pixel_locs, level_adjusts, sinc_lut, dsout_start, start_i, end_i, shift):
     half_taps_m1 = (sinc_tap_count // 2) - 1
 
-    dsout_start = outwidth * (lineoffset + 1)
-    dsout_end = len(dsout) + dsout_start
-    for i in range(dsout_start, dsout_end):
-        # compensates for the amplitude/frequency shift caused by FM demodulation under varying playback speed.
+    for i in range(start_i, end_i):
         level_adjust = level_adjusts[i]
 
-        # Adding the positive shift pulls future (late) samples backward into alignment.
-        # TODO: THIS NEEDS TO BE PUSHED UPSTREAM NOT HERE!!!11
         coord = np.float32(interpolated_pixel_locs[i] + shift)
         coord_int = int(coord)
 
-        # fractional phase
         frac = coord - coord_int
-
-        # sinc_phase_count is 2**16, so the nearest tabulated phase is already
-        # accurate far below float32 precision. Interpolating between two
-        # adjacent phases would double LUT reads and add per-tap math in the
-        # innermost loop of the decoder for no change in output.
-        # If the LUT gets smaller, consider adding linear interpolation.
         phase = int(frac * sinc_phase_count + np.float32(0.5))
         w = sinc_lut[phase]
 
@@ -172,6 +160,95 @@ def scale_field(buf, dsout, interpolated_pixel_locs, wowfactors, sinc_lut, lineo
             result += buf[start + t] * w[t]
 
         dsout[i - dsout_start] = level_adjust * result
+
+
+@njit(nogil=True, cache=True, fastmath=True)
+def scale_field(buf, dsout, interpolated_pixel_locs, wowfactors, sinc_lut, lineoffset, outwidth, wow_level_adjust_smoothing = 0, level_adjust_threshold = 15, shift: float = 0.0):
+    level_adjusts = _scale_field_level_adjusts(
+        wowfactors,
+        outwidth,
+        wow_level_adjust_smoothing,
+        level_adjust_threshold,
+    )
+    dsout_start = outwidth * (lineoffset + 1)
+    dsout_end = len(dsout) + dsout_start
+    _scale_field_range(
+        buf,
+        dsout,
+        interpolated_pixel_locs,
+        level_adjusts,
+        sinc_lut,
+        dsout_start,
+        dsout_start,
+        dsout_end,
+        shift,
+    )
+
+
+def scale_field_threaded(buf, dsout, interpolated_pixel_locs, wowfactors, sinc_lut, lineoffset, outwidth, executor, wow_level_adjust_smoothing = 0, level_adjust_threshold = 15, shift: float = 0.0):
+    level_adjusts = _scale_field_level_adjusts(
+        wowfactors,
+        outwidth,
+        wow_level_adjust_smoothing,
+        level_adjust_threshold,
+    )
+
+    dsout_start = outwidth * (lineoffset + 1)
+    dsout_end = len(dsout) + dsout_start
+    workers = max(1, int(getattr(executor, "_max_workers", 1)))
+
+    if workers == 1:
+        _scale_field_range(
+            buf,
+            dsout,
+            interpolated_pixel_locs,
+            level_adjusts,
+            sinc_lut,
+            dsout_start,
+            dsout_start,
+            dsout_end,
+            shift,
+        )
+        return
+
+    _scale_field_range(
+        buf,
+        dsout,
+        interpolated_pixel_locs,
+        level_adjusts,
+        sinc_lut,
+        dsout_start,
+        dsout_start,
+        dsout_start,
+        shift,
+    )
+
+    count = dsout_end - dsout_start
+    chunk_size = (count + workers - 1) // workers
+    futures = []
+
+    for worker in range(workers):
+        start_i = dsout_start + worker * chunk_size
+        if start_i >= dsout_end:
+            break
+        end_i = min(dsout_end, start_i + chunk_size)
+        futures.append(
+            executor.submit(
+                _scale_field_range,
+                buf,
+                dsout,
+                interpolated_pixel_locs,
+                level_adjusts,
+                sinc_lut,
+                dsout_start,
+                start_i,
+                end_i,
+                shift,
+            )
+        )
+
+    for future in futures:
+        future.result()
 
 
 frequency_suffixes = [
