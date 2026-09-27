@@ -1248,6 +1248,7 @@ class FieldShared:
         hsync_len = self.rf.pulse_hsync_len
         front_porch_len = self.rf.pulse_front_porch_len
         line_len = self.rf.pulse_line_len
+        approx_transition = self.rf.pulse_approx_transition
 
         # 1. Filter out high frequencies
         # boxcar FIR filter to remove high frequency data (color burst, pilot tone)
