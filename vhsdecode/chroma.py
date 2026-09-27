@@ -1811,6 +1811,20 @@ def process_chroma(
     disable_tracking_cafc=False,
     do_chroma_deemphasis=False,
 ):
+    _profile_start = time.perf_counter()
+    _profile = {
+        "tbc": 0.0,
+        "cafc": 0.0,
+        "secam_servo": 0.0,
+        "burst_deemph": 0.0,
+        "upconvert": 0.0,
+        "final_filter": 0.0,
+        "deemphasis": 0.0,
+        "comb": 0.0,
+        "agc": 0.0,
+        "cti": 0.0,
+    }
+
     lineoffset = field.lineoffset + 1
     linesout = field.outlinecount
     outwidth = field.outlinelen
@@ -1838,10 +1852,13 @@ def process_chroma(
         # TODO: shift amount may need tuning / needs validation
         chroma_subcarrier_delay_cycles = field.rf.SysParams['fsc_mhz'] * 1e6 / (2.0 * np.pi * field.rf.DecoderParams["color_under_carrier"])
         chroma_subcarrier_delay_samples = chroma_subcarrier_delay_cycles * 4
+        _profile_t0 = time.perf_counter()
         chroma, _, _ = ldd.Field.downscale(field, channel="demod_burst", shift=chroma_subcarrier_delay_samples * chroma_shift_direction)
+        _profile["tbc"] += time.perf_counter() - _profile_t0
 
         # If chroma AFC is enabled
         if field.rf.do_cafc:
+            _profile_t0 = time.perf_counter()
             # it does the chroma filtering AFTER the TBC
             chroma = chroma_color_under_filter(
                 chroma,
@@ -1859,11 +1876,13 @@ def process_chroma(
                     "Chroma under AFC: %.02f kHz, Offset (long term): %.02f Hz, Phase: %.02f deg"
                     % (meas / 1e3, offset, cphase * 360 / (2 * np.pi))
                 )
+            _profile["cafc"] += time.perf_counter() - _profile_t0
 
         if (
             field.rf.color_system == "MESECAM"
             and field.rf.options.secam_carrier_servo
         ):
+            _profile_t0 = time.perf_counter()
             # Measure the rest carrier pair on the late back porch,
             # 3.7 to 0.3 us before active video starts.
             active_start_px = field.usectooutpx(field.rf.SysParams["activeVideoUS"][0])
@@ -1882,6 +1901,7 @@ def process_chroma(
                 ldd.logger.debug(
                     "SECAM carrier servo: measured offset %.02f Hz" % carrier_offset
                 )
+            _profile["secam_servo"] += time.perf_counter() - _profile_t0
 
         field.rf.chroma_tbc_buffer = chroma
         field.chroma_tbc_buffer = chroma
@@ -1901,7 +1921,9 @@ def process_chroma(
     # For NTSC, the color burst amplitude is doubled when recording, so we have to undo that.
     if field.rf.color_system == "NTSC":
         if not disable_deemph:
+            _profile_t0 = time.perf_counter()
             chroma = burst_deemphasis(chroma, lineoffset, linesout, outwidth, burstarea)
+            _profile["burst_deemph"] += time.perf_counter() - _profile_t0
 
     if (
         not field.rf.options.disable_phase_correction
@@ -1921,6 +1943,7 @@ def process_chroma(
         # this uses the burst measurements to interpolate the correct phase of the color under heterodyne
         # phase issues are corrected continiously for each sample using a linear spline interpolated from the burst measurements
         # the mixing is performed on the upsampled signal to avoid aliasing introduced from the up-heterodyne mixing product
+        _profile_t0 = time.perf_counter()
         upconvert_chroma_phase_comp(
             chroma, # modifies this in place
             lineoffset,
@@ -1931,6 +1954,7 @@ def process_chroma(
             target_phase_even,
             target_phase_odd,
         )
+        _profile["upconvert"] += time.perf_counter() - _profile_t0
         uphet = chroma
     else:
         if field.rf.chroma_afc.conversion_lo is not None:
@@ -1960,6 +1984,7 @@ def process_chroma(
             )
 
         uphet = np.zeros((linesout * outwidth), dtype=np.float32)
+        _profile_t0 = time.perf_counter()
         upconvert_chroma(
             chroma,
             uphet,
@@ -1968,11 +1993,13 @@ def process_chroma(
             field.phase_sequence,
             chroma_heterodyne
         )
+        _profile["upconvert"] += time.perf_counter() - _profile_t0
 
     # Filter out unwanted frequencies from the final chroma signal.
     # Mixing the signals will produce waves at the difference and sum of the
     # frequencies. We only want the difference wave which is at the correct color
     # carrier frequency here.
+    _profile_t0 = time.perf_counter()
     if field.rf.color_system == "MESECAM":
         # The restored SECAM FM block is anchored at conversion_lo -
         # color_under (4.328125 MHz), not fsc, so the fsc-anchored FFT mask
@@ -1988,19 +2015,25 @@ def process_chroma(
             1.3e6, # lower chroma bandwidth (roughly this for PAL / NTSC)
             80.0   # heterodyne up-mixing attenuation
         )
+    _profile["final_filter"] += time.perf_counter() - _profile_t0
 
     if do_chroma_deemphasis:
+        _profile_t0 = time.perf_counter()
         b, a = field.rf.Filters["chroma_deemphasis"]
         uphet = sps.lfilter(b, a, uphet)
+        _profile["deemphasis"] += time.perf_counter() - _profile_t0
 
     # Basic comb filter for NTSC to calm the color a little.
     if not disable_comb:
+        _profile_t0 = time.perf_counter()
         if field.rf.color_system == "NTSC":
             uphet = comb_c_ntsc(uphet, outwidth)
         else:
             uphet = comb_c_pal(uphet, outwidth)
+        _profile["comb"] += time.perf_counter() - _profile_t0
 
     # Chroma AGC
+    _profile_t0 = time.perf_counter()
     mean_rms, chroma_noise_floor = chroma_automatic_gain(
         uphet,
         field.rf.SysParams["burst_abs_ref"],
@@ -2008,10 +2041,12 @@ def process_chroma(
         field.burst_detected_line,
         math.floor(field.usectooutpx(field.rf.SysParams["hsyncPulseUS"]))
     )
+    _profile["agc"] += time.perf_counter() - _profile_t0
 
     field.rf.field_averages.chroma_level.push(mean_rms)
 
     if field.rf.options.cti_mix != 0:
+        _profile_t0 = time.perf_counter()
         chroma_transient_improvement(
             uphet,
             lineoffset * outwidth,
@@ -2020,6 +2055,11 @@ def process_chroma(
             field.rf.options.cti_width,
             field.rf.options.cti_mix,
         )
+        _profile["cti"] += time.perf_counter() - _profile_t0
+
+    _profile_total = time.perf_counter() - _profile_start
+    _profile["misc"] = max(0.0, _profile_total - sum(_profile.values()))
+    field._profile_chroma_stages = _profile
 
     return uphet
 
