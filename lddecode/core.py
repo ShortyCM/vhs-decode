@@ -2782,7 +2782,8 @@ class Field:
         audio=0,
         final=False,
         lastfieldwritten=None,
-        shift: float = 0.0
+        shift: float = 0.0,
+        reuse_wow: bool = False
     ):
         _profile_downscale_start = time.perf_counter()
 
@@ -2844,7 +2845,15 @@ class Field:
         dsout = np.zeros((linesout * outwidth), dtype=np.float32)
 
         _profile_t0 = time.perf_counter()
-        interpolated_pixel_locs, wowfactors = self.computewow_scaled()
+        if (
+            reuse_wow
+            and hasattr(self, "interpolated_pixel_locs")
+            and hasattr(self, "wowfactors")
+        ):
+            interpolated_pixel_locs = self.interpolated_pixel_locs
+            wowfactors = self.wowfactors
+        else:
+            interpolated_pixel_locs, wowfactors = self.computewow_scaled()
         _profile_wow = time.perf_counter() - _profile_t0
 
         _profile_t0 = time.perf_counter()
