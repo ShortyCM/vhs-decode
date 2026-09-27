@@ -1245,13 +1245,13 @@ class FieldShared:
 
     def get_pulses(self, do_level_detect=False):
         demod = self.data["video"]["demod_05"]
-        hsync_len = self.usectoinpx(self.rf.SysParams["hsyncPulseUS"])
-        front_porch_len = self.usectoinpx(self.rf.SysParams["activeVideoUS"][0] - self.rf.SysParams["hsyncPulseUS"] - 2)
-        line_len = round(self.usectoinpx(self.rf.SysParams["line_period"]))
+        hsync_len = self.rf.pulse_hsync_len
+        front_porch_len = self.rf.pulse_front_porch_len
+        line_len = self.rf.pulse_line_len
 
         # 1. Filter out high frequencies
         # boxcar FIR filter to remove high frequency data (color burst, pilot tone)
-        approx_transition = self.usectoinpx(0.22)
+        approx_transition = self.rf.pulse_approx_transition
         window_size = max(3, int(approx_transition))
         if window_size % 2 == 0:
             window_size += 1
