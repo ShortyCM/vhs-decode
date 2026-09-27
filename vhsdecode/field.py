@@ -1775,7 +1775,7 @@ class FieldShared:
             plot_data_and_pulses(
                 self.data["video"]["demod"],
                 raw_pulses=self.rawpulses,
-                threshold=self.rf.iretohz(self.rf.SysParams["vsync_ire"] / 2),
+                threshold=hsync_midpoint_hz,
             )
 
         if first_hsync_loc is None:
@@ -1868,7 +1868,7 @@ class FieldShared:
 
     def refine_linelocs_hsync(self):
         if not self.rf.options.skip_hsync_refine:
-            threshold = self.rf.iretohz(self.rf.SysParams["vsync_ire"] / 2)
+            threshold = hsync_midpoint_hz
 
             return sync.refine_linelocs_hsync(self, self.linebad, threshold)
         else:
@@ -1901,6 +1901,9 @@ class FieldShared:
 
         demod_05 = self.data["video"]["demod_05"]
         one_usec = self.rf.freq
+        hsync_midpoint_hz = hsync_midpoint_hz
+        hsync_min_hz = hsync_min_hz
+        hsync_max_hz = hsync_max_hz
 
         for i in range(len(self.linelocs1)):
             # skip VSYNC lines, since they handle the pulses differently
@@ -1916,7 +1919,7 @@ class FieldShared:
             zc = lddu.calczc(
                 demod_05,
                 ll1,
-                self.rf.iretohz(self.rf.SysParams["vsync_ire"] / 2),
+                hsync_midpoint_hz,
                 reverse=False,
                 count=one_usec * 2,
             )
@@ -1927,7 +1930,7 @@ class FieldShared:
                 right_cross = lddu.calczc(
                     demod_05,
                     ll1 + (normal_hsync_length) - one_usec,
-                    self.rf.iretohz(self.rf.SysParams["vsync_ire"] / 2),
+                    hsync_midpoint_hz,
                     reverse=False,
                     count=one_usec * 3,
                 )
@@ -1940,9 +1943,9 @@ class FieldShared:
 
                 # The hsync area, burst, and porches should not leave -50 to 30 IRE (on PAL or NTSC)
                 hsync_area = demod_05[int(zc - (one_usec * 0.75)) : int(zc + (one_usec * 8))]
-                if lddu.nb_min(hsync_area) < self.rf.iretohz(-55) or lddu.nb_max(
+                if lddu.nb_min(hsync_area) < hsync_min_hz or lddu.nb_max(
                     hsync_area
-                ) > self.rf.iretohz(30):
+                ) > hsync_max_hz:
                     # don't use the computed value here if it's bad
                     linebad[i] = True
                     linelocs2[i] = self.linelocs1[i]
@@ -1980,9 +1983,9 @@ class FieldShared:
 
                 # The hsync area, burst, and porches should not leave -50 to 30 IRE (on PAL or NTSC)
                 hsync_area = demod_05[int(zc_fr - (one_usec * 0.75)) : int(zc_fr + (one_usec * 8))]
-                if lddu.nb_min(hsync_area) > self.rf.iretohz(-55) and lddu.nb_max(
+                if lddu.nb_min(hsync_area) > hsync_min_hz and lddu.nb_max(
                     hsync_area
-                ) < self.rf.iretohz(30):
+                ) < hsync_max_hz:
                     porch_level = lddu.nb_median(
                         demod_05[int(zc_fr + (one_usec * 8)) : int(zc_fr + (one_usec * 9))]
                     )
