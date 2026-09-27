@@ -208,6 +208,17 @@ class VHSDecode(ldd.LDdecode):
             "chroma_scale_field": 0.0,
             "chroma_output": 0.0,
             "chroma_other": 0.0,
+            "chroma_tbc": 0.0,
+            "chroma_cafc": 0.0,
+            "chroma_secam_servo": 0.0,
+            "chroma_burst_deemph": 0.0,
+            "chroma_upconvert": 0.0,
+            "chroma_final_filter": 0.0,
+            "chroma_deemphasis": 0.0,
+            "chroma_comb": 0.0,
+            "chroma_agc": 0.0,
+            "chroma_cti": 0.0,
+            "chroma_misc": 0.0,
             "metrics": 0.0,
             "buildmetadata": 0.0,
             "writeout": 0.0,
@@ -445,7 +456,18 @@ class VHSDecode(ldd.LDdecode):
                 f"wow={p['chroma_wow']:.3f}s, "
                 f"scale_field={p['chroma_scale_field']:.3f}s, "
                 f"base_output={p['chroma_output']:.3f}s, "
-                f"other={p['chroma_other']:.3f}s), "
+                f"other={p['chroma_other']:.3f}s, "
+                f"tbc={p['chroma_tbc']:.3f}s, "
+                f"cafc={p['chroma_cafc']:.3f}s, "
+                f"secam_servo={p['chroma_secam_servo']:.3f}s, "
+                f"burst_deemph={p['chroma_burst_deemph']:.3f}s, "
+                f"upconvert={p['chroma_upconvert']:.3f}s, "
+                f"final_filter={p['chroma_final_filter']:.3f}s, "
+                f"deemphasis={p['chroma_deemphasis']:.3f}s, "
+                f"comb={p['chroma_comb']:.3f}s, "
+                f"agc={p['chroma_agc']:.3f}s, "
+                f"cti={p['chroma_cti']:.3f}s, "
+                f"misc={p['chroma_misc']:.3f}s), "
                 f"metrics={p['metrics']:.3f}s, "
                 f"buildmetadata={p['buildmetadata']:.3f}s, "
                 f"writeout={p['writeout']:.3f}s, "
@@ -606,6 +628,18 @@ class VHSDecode(ldd.LDdecode):
                     self._pipeline_profile["chroma_other"] += max(
                         0.0, _chroma_profile.get("process", 0.0) - _chroma_base_total
                     )
+                    _chroma_stages = getattr(f, "_profile_chroma_stages", {})
+                    self._pipeline_profile["chroma_tbc"] += _chroma_stages.get("tbc", 0.0)
+                    self._pipeline_profile["chroma_cafc"] += _chroma_stages.get("cafc", 0.0)
+                    self._pipeline_profile["chroma_secam_servo"] += _chroma_stages.get("secam_servo", 0.0)
+                    self._pipeline_profile["chroma_burst_deemph"] += _chroma_stages.get("burst_deemph", 0.0)
+                    self._pipeline_profile["chroma_upconvert"] += _chroma_stages.get("upconvert", 0.0)
+                    self._pipeline_profile["chroma_final_filter"] += _chroma_stages.get("final_filter", 0.0)
+                    self._pipeline_profile["chroma_deemphasis"] += _chroma_stages.get("deemphasis", 0.0)
+                    self._pipeline_profile["chroma_comb"] += _chroma_stages.get("comb", 0.0)
+                    self._pipeline_profile["chroma_agc"] += _chroma_stages.get("agc", 0.0)
+                    self._pipeline_profile["chroma_cti"] += _chroma_stages.get("cti", 0.0)
+                    self._pipeline_profile["chroma_misc"] += _chroma_stages.get("misc", 0.0)
 
                 _profile_t0 = time.perf_counter()
                 _ = self.computeMetrics(f, None, verbose=True)
