@@ -200,6 +200,9 @@ class VHSDecode(ldd.LDdecode):
             "luma_scale_field": 0.0,
             "luma_scale_prep": 0.0,
             "luma_scale_prep_stats": 0.0,
+            "luma_scale_prep_median": 0.0,
+            "luma_scale_prep_mad": 0.0,
+            "luma_scale_prep_clamp": 0.0,
             "luma_scale_prep_smooth": 0.0,
             "luma_scale_resample": 0.0,
             "luma_output": 0.0,
@@ -212,6 +215,9 @@ class VHSDecode(ldd.LDdecode):
             "chroma_scale_field": 0.0,
             "chroma_scale_prep": 0.0,
             "chroma_scale_prep_stats": 0.0,
+            "chroma_scale_prep_median": 0.0,
+            "chroma_scale_prep_mad": 0.0,
+            "chroma_scale_prep_clamp": 0.0,
             "chroma_scale_prep_smooth": 0.0,
             "chroma_scale_resample": 0.0,
             "chroma_output": 0.0,
@@ -456,7 +462,10 @@ class VHSDecode(ldd.LDdecode):
                 f"(luma: wow={p['luma_wow']:.3f}s, "
                 f"scale_field={p['luma_scale_field']:.3f}s "
                 f"(prep={p['luma_scale_prep']:.3f}s "
-                f"[stats={p['luma_scale_prep_stats']:.3f}s, "
+                f"[stats={p['luma_scale_prep_stats']:.3f}s "
+                f"(median={p['luma_scale_prep_median']:.3f}s, "
+                f"mad={p['luma_scale_prep_mad']:.3f}s, "
+                f"clamp={p['luma_scale_prep_clamp']:.3f}s), "
                 f"smooth={p['luma_scale_prep_smooth']:.3f}s], "
                 f"resample={p['luma_scale_resample']:.3f}s), "
                 f"base_output={p['luma_output']:.3f}s, "
@@ -468,7 +477,10 @@ class VHSDecode(ldd.LDdecode):
                 f"wow={p['chroma_wow']:.3f}s, "
                 f"scale_field={p['chroma_scale_field']:.3f}s "
                 f"(prep={p['chroma_scale_prep']:.3f}s "
-                f"[stats={p['chroma_scale_prep_stats']:.3f}s, "
+                f"[stats={p['chroma_scale_prep_stats']:.3f}s "
+                f"(median={p['chroma_scale_prep_median']:.3f}s, "
+                f"mad={p['chroma_scale_prep_mad']:.3f}s, "
+                f"clamp={p['chroma_scale_prep_clamp']:.3f}s), "
                 f"smooth={p['chroma_scale_prep_smooth']:.3f}s], "
                 f"resample={p['chroma_scale_resample']:.3f}s), "
                 f"base_output={p['chroma_output']:.3f}s, "
@@ -624,6 +636,9 @@ class VHSDecode(ldd.LDdecode):
                     self._pipeline_profile["luma_scale_field"] += _luma_profile.get("scale_field", 0.0)
                     self._pipeline_profile["luma_scale_prep"] += _luma_profile.get("scale_prep", 0.0)
                     self._pipeline_profile["luma_scale_prep_stats"] += _luma_profile.get("scale_prep_stats", 0.0)
+                    self._pipeline_profile["luma_scale_prep_median"] += _luma_profile.get("scale_prep_median", 0.0)
+                    self._pipeline_profile["luma_scale_prep_mad"] += _luma_profile.get("scale_prep_mad", 0.0)
+                    self._pipeline_profile["luma_scale_prep_clamp"] += _luma_profile.get("scale_prep_clamp", 0.0)
                     self._pipeline_profile["luma_scale_prep_smooth"] += _luma_profile.get("scale_prep_smooth", 0.0)
                     self._pipeline_profile["luma_scale_resample"] += _luma_profile.get("scale_resample", 0.0)
                     self._pipeline_profile["luma_output"] += _luma_profile.get("output", 0.0)
@@ -640,6 +655,9 @@ class VHSDecode(ldd.LDdecode):
                     self._pipeline_profile["chroma_scale_field"] += _chroma_base.get("scale_field", 0.0)
                     self._pipeline_profile["chroma_scale_prep"] += _chroma_base.get("scale_prep", 0.0)
                     self._pipeline_profile["chroma_scale_prep_stats"] += _chroma_base.get("scale_prep_stats", 0.0)
+                    self._pipeline_profile["chroma_scale_prep_median"] += _chroma_base.get("scale_prep_median", 0.0)
+                    self._pipeline_profile["chroma_scale_prep_mad"] += _chroma_base.get("scale_prep_mad", 0.0)
+                    self._pipeline_profile["chroma_scale_prep_clamp"] += _chroma_base.get("scale_prep_clamp", 0.0)
                     self._pipeline_profile["chroma_scale_prep_smooth"] += _chroma_base.get("scale_prep_smooth", 0.0)
                     self._pipeline_profile["chroma_scale_resample"] += _chroma_base.get("scale_resample", 0.0)
                     self._pipeline_profile["chroma_output"] += _chroma_base.get("output", 0.0)
