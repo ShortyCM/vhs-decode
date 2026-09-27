@@ -1,3 +1,5 @@
+from lddecode import redundancy_profile as _rp
+from lddecode.redundancy_profile import native_ticks as _profile_ticks, native_record as _profile_record
 import math
 import numpy as np
 import lddecode.utils as lddu
@@ -820,6 +822,7 @@ def upconvert_chroma_phase_comp(
     target_phase_even,
     target_phase_odd,
     local_idx=None,
+    _profile=None,
 ):
     deg2rad_scale = np.pi / 180.0
     pi_over_two = np.pi / 2.0
@@ -836,8 +839,11 @@ def upconvert_chroma_phase_comp(
 
     # Pre-generate a local pixel coordinate array to help Numba vectorize
     # Computing on a local range [0, outwidth) helps the compiler reason about alignment
+    _profile_start_18 = _profile_ticks() if _profile is not None else 0
     if local_idx is None:
         local_idx = np.arange(outwidth, dtype=np.float64)
+    if _profile is not None:
+        _profile_record(_profile, 18, _profile_ticks() - _profile_start_18)
 
     for idx in range(num_bursts):
         current_burst = phase_rotation_sequence[idx]
@@ -1001,7 +1007,7 @@ def decode_chroma_phase_rotation(
         burstarea,
         field.rf.fsc_wave,
         field.rf.fsc_cos_wave,
-        field.rf.fsc_hz,
+        _rp.value(11, lambda: field.rf.fsc_hz),
         detect_chroma_track_phase,
         rotation_check_start_line, # check for track phase rotation around the headswitching area (bottom of field)
         field.rf.options.enable_color_killer,
@@ -1837,14 +1843,15 @@ def process_chroma(
         # shift the chroma to reverse group delay caused by the color under heterodyne filter
         # this is dependent on color framing, and is disabled if color framing is disabled
         # TODO: shift amount may need tuning / needs validation
-        chroma_subcarrier_delay_cycles = field.rf.fsc_hz / (2.0 * np.pi * field.rf.DecoderParams["color_under_carrier"])
+        chroma_subcarrier_delay_cycles = _rp.value(11, lambda: field.rf.fsc_hz) / (2.0 * np.pi * field.rf.DecoderParams["color_under_carrier"])
         chroma_subcarrier_delay_samples = chroma_subcarrier_delay_cycles * 4
-        chroma, _, _ = ldd.Field.downscale(
-            field,
-            channel="demod_burst",
-            shift=chroma_subcarrier_delay_samples * chroma_shift_direction,
-            reuse_scale_state=True,
-        )
+        with _rp.region(2):
+            chroma, _, _ = ldd.Field.downscale(
+                field,
+                channel="demod_burst",
+                shift=chroma_subcarrier_delay_samples * chroma_shift_direction,
+                reuse_scale_state=True,
+            )
 
         # If chroma AFC is enabled
         if field.rf.do_cafc:
@@ -1933,11 +1940,10 @@ def process_chroma(
             outwidth,
             field.phase_sequence,
             field.rf.DecoderParams["color_under_carrier"],
-            field.rf.fsc_hz,
+            _rp.value(11, lambda: field.rf.fsc_hz),
             target_phase_even,
             target_phase_odd,
-            field.rf.chroma_pixel_indices,
-        )
+            _rp.value(18, lambda: field.rf.chroma_pixel_indices), _profile=_rp.native_buffer())
         uphet = chroma
     else:
         if field.rf.chroma_afc.conversion_lo is not None:
@@ -1990,7 +1996,7 @@ def process_chroma(
     else:
         uphet = filter_chroma_fft(
             uphet,
-            field.rf.fsc_hz,
+            _rp.value(11, lambda: field.rf.fsc_hz),
             field.rf.DecoderParams["color_under_carrier"],
             1.3e6, # lower chroma bandwidth (roughly this for PAL / NTSC)
             80.0   # heterodyne up-mixing attenuation
@@ -2141,6 +2147,7 @@ def decode_chroma(field, do_chroma_deemphasis=False):
     return None
 
 
+@_rp.measured(10)
 def get_burst_area(field):
     color_burst_us = field.rf.SysParams["colorBurstUS"]
     outfreq = field.rf.SysParams["outfreq"]
