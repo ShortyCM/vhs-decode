@@ -1,4 +1,5 @@
 import math
+import time
 import numpy as np
 import lddecode.utils as lddu
 import lddecode.core as ldd
@@ -2119,17 +2120,36 @@ def decode_chroma(field, do_chroma_deemphasis=False):
         """Do track detection if needed and upconvert the chroma signal"""
         field.chroma_tbc_buffer = None
 
+        _profile_t0 = time.perf_counter()
         uphet = process_chroma(
             field,
             disable_comb=field.rf.options.disable_comb,
             disable_tracking_cafc=False,
             do_chroma_deemphasis=do_chroma_deemphasis,
         )
+        _profile_process = time.perf_counter() - _profile_t0
+        _profile_base = dict(getattr(field, "_profile_downscale", {}))
+
         field.uphet_temp = uphet
         # Release to avoid keeping this im memory - should do this in a cleaner manner.
         field.chroma_tbc_buffer = None
-        return chroma_to_u16(uphet)
 
+        _profile_t0 = time.perf_counter()
+        output = chroma_to_u16(uphet)
+        _profile_to_u16 = time.perf_counter() - _profile_t0
+
+        field._profile_chroma = {
+            "process": _profile_process,
+            "to_u16": _profile_to_u16,
+            "base": _profile_base,
+        }
+        return output
+
+    field._profile_chroma = {
+        "process": 0.0,
+        "to_u16": 0.0,
+        "base": {},
+    }
     return None
 
 
