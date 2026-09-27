@@ -2784,6 +2784,8 @@ class Field:
         lastfieldwritten=None,
         shift: float = 0.0
     ):
+        _profile_downscale_start = time.perf_counter()
+
         if lineinfo is None:
             lineinfo = self.linelocs
         if outwidth is None:
@@ -2838,8 +2840,6 @@ class Field:
             else:
                 # return values will still be in audio_rv later
                 downscale_audio(*dsa_args)
-
-        _profile_downscale_start = time.perf_counter()
 
         dsout = np.zeros((linesout * outwidth), dtype=np.float32)
 
