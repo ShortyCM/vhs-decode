@@ -2079,19 +2079,14 @@ class FieldShared:
         # Get the defaults - this works somehow because python.
         LT = super(FieldShared, self).get_timings()
 
-        hsync_min = LT["hsync_median"] + self.usectoinpx(-0.7)
-        hsync_max = LT["hsync_median"] + self.usectoinpx(0.7)
+        fixed_timing_px = self.rf.fixed_timing_px
+        hsync_min = LT["hsync_median"] + fixed_timing_px["vhs_hsync_minus_0_7"]
+        hsync_max = LT["hsync_median"] + fixed_timing_px["vhs_hsync_plus_0_7"]
 
         LT["hsync"] = (hsync_min, hsync_max)
 
-        eq_min = (
-            self.usectoinpx(self.rf.SysParams["eqPulseUS"] - formats.EQ_PULSE_TOLERANCE)
-            + LT["hsync_offset"]
-        )
-        eq_max = (
-            self.usectoinpx(self.rf.SysParams["eqPulseUS"] + formats.EQ_PULSE_TOLERANCE)
-            + LT["hsync_offset"]
-        )
+        eq_min = fixed_timing_px["vhs_eq_min"] + LT["hsync_offset"]
+        eq_max = fixed_timing_px["vhs_eq_max"] + LT["hsync_offset"]
 
         LT["eq"] = (eq_min, eq_max)
 
