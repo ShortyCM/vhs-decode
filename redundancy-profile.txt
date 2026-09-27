@@ -1,0 +1,143 @@
+REDUNDANT-OPERATIONS PROFILING
+
+Baseline parent: d38edbbf30b3788971a6ff51f97432ed1eec2845
+Latest parent:   b40fd8505a09788fd5ae7dfc27f71d8ac5c975f7
+Branches: profile-redundancy-baseline and profile-redundancy-latest
+
+These branches add instrumentation to their respective parents. They do not
+apply the latest optimizations to the baseline. Stripping the instrumentation
+from the five modified decoding files reproduces each parent's calculation AST.
+The unrelated invalid-crossing early-return change is not included.
+
+Run decode.py normally. The summary prints automatically at process exit after
+all decoding output. Use the same input, options, and frame limit on both
+branches. Running from Python avoids packaging an executable. Run twice per
+branch and compare the second reports as well as the call counts.
+
+INVENTORY AND MEASUREMENT BOUNDARIES
+
+01. Reuse field wow interpolation map (8e5a5f9).
+    Times the whole Field.computewow_scaled call, including coordinate grids,
+    spline construction, and spline evaluations. The first per-field cache
+    design was superseded by explicit reuse for chroma; it is not still present
+    as a separate cache in the latest parent. Compare total calls and time.
+
+02. Reuse finalized luma wow map for chroma (12b5108).
+    Times the chroma call to Field.downscale in process_chroma. This is an
+    inclusive chroma TBC stage, including resampling, any map construction,
+    and level preparation. It includes relevant work in 01 and 03; it is not
+    an isolated measurement of one cache lookup.
+
+03. Reuse finalized scale preparation for chroma (20addbe).
+    Times the original scale_field preparation before sample resampling and
+    the latest scale_field_prepare body, using native timers. The latest
+    cached level-adjustment lookup is also measured. Includes stage 12 and
+    smoothing when enabled. Does not include the interpolation loop itself.
+
+04. Remove discarded field metrics pass (1c58d8d).
+    Times the discarded computeMetrics call in VHSDecode.readfield on baseline.
+    That call is absent on latest, so its latest count is zero. Includes any
+    stage-05 work executed inside that call. Other metrics calls are untouched.
+
+05. Reuse white IRE mean (a2274be).
+    Times the white-region mean/conversion expressions in LDdecode.computeMetrics.
+    Latest measures calculation and the subsequent reuse assignment separately.
+
+06. Reuse AGC white IRE conversion (524317f, including documentation follow-ups).
+    Times the whitediff assignment in VHSDecode.readfield. This may be inactive
+    with the chosen AGC settings. The original comparison semantics are preserved.
+
+07. Reuse debug inverse FFT (952d81a).
+    Times only filtered_data inverse FFTs and reuse in the magnitude-density
+    and input-data debug plots. Normal demodulation inverse FFTs are excluded.
+    Expect zero calls when these debug plots are disabled.
+
+08. Reuse Philips code constants within a call (a432995).
+    Times the IRE threshold conversions and the repeated 0.5, 1.9, and 0.2
+    microsecond conversions in decodephillipscode. The time conversions also
+    appear in 17. On latest the cached tuple acquisition is one interval shared
+    by 08 and 17, so it also includes the tuple's 2 and 12 microsecond entries.
+    Does not time the crossing search or the rest of code decoding.
+
+09. Reuse fixed wow interpolation grids (190bca1).
+    Baseline times construction of the expected line coordinates and scaled
+    pixel coordinates. Latest times the key construction, cache check, and
+    retrieval or reconstruction. These intervals are inside stage 01.
+
+10. Reuse chroma burst area (3109469).
+    Times the complete get_burst_area function, including latest validation of
+    the cached geometry and either lookup or recalculation.
+
+11. Reuse fixed FSC values (6c5b99d).
+    Times the changed frequency multiplication and ratio expressions at their
+    field/chroma use sites, or the replacement cached-attribute accesses.
+    Latest constructor calculations are reported separately as setup.
+
+12. Reuse wow absolute deviation (fda1e9c).
+    Native interval covers median, absolute-deviation/MAD, threshold, and
+    np.where selection, before optional smoothing. This encloses the changed
+    expressions without extracting them and altering Numba's array fusion.
+    It is a substage of 03, not the isolated absolute-value cost.
+
+13. Reuse pulse geometry conversions (d92b945).
+    Times the four geometry/transition assignments in FieldShared.get_pulses,
+    including their replacement attribute lookups. Latest construction is setup.
+
+14. Reuse pulse-filter kernel (2ab2c847, including transition-variable repair).
+    Baseline times the window-size selection and kernel creation. Latest times
+    retrieving the kernel passed to convolution. Convolution is excluded.
+    Latest one-time kernel creation is setup.
+
+15. Remove duplicate timing-dictionary initialization (bd7647a).
+    Times both consecutive LT={} assignments on baseline and the remaining
+    single assignment on latest. This interval is near the Python timer floor.
+
+16. Reuse HSync/EQ/VSync conversions (ee19ca4).
+    Times fixed conversion/lookup blocks and the associated min/max arithmetic
+    in base and VHS get_timings methods. Pulse scanning and median measurement
+    are excluded. Latest constructor cache creation is setup.
+
+17. Reuse Philips timing conversions across calls (a78f012).
+    Times all five usectoinpx conversions on baseline, or cached-tuple selection
+    and unpacking on latest. Shares some measured intervals with 08, as described
+    there. Latest one-time tuple creation is setup.
+
+18. Reuse chroma pixel coordinates (b40fd85).
+    Native interval measures np.arange in baseline chroma phase correction and
+    the array-selection branch on latest. Latest Python-side cached-array
+    access is also included; constructor array creation is setup.
+    The pixel processing loop and cosine calculations are excluded.
+
+READING THE SUMMARY
+
+Calls: number of recorded intervals, not frames. Some stages contain multiple
+intervals per function call and some combine Python and native intervals.
+Total ms: sum of all runtime intervals.
+First ms: sum of the first interval for each reporting thread and timer kind.
+Rest ms: Total minus First.
+Rest us/call: mean duration of the remaining intervals.
+Setup n / Setup ms: separate constructor cache preparation measurements.
+
+Python scopes use perf_counter_ns. Compiled functions use QueryPerformanceCounter
+on Windows and clock_gettime(CLOCK_MONOTONIC) on Unix, through native LLVM calls.
+No Python callback is inserted into compiled loops. Each calling thread has its
+own counter buffers. Native ticks are converted to time using the clock frequency.
+
+Native intervals exclude JIT compilation. Enclosing Python intervals can include
+compilation, including first calls to different compiled functions after the
+first interval in that row. First ms is not a universal JIT-time subtraction.
+
+Scopes overlap: 02 can contain 01 and 03, 01 contains 09, 03 contains 12,
+04 can contain 05, and 08 overlaps 17. Do not sum all rows. The profile does not
+claim to separate the independent speedup attributable to every historical
+commit. Thread time can overlap, so accumulated stage time is not wall time.
+
+Zero calls means the path was not executed or has been removed. It does not
+mean an operation was measured as taking zero time. Debug-only and optional
+paths normally have zero counts unless explicitly enabled by the existing options.
+
+The summary reports raw empty-clock and empty-expression timing floors.
+Instrumentation overhead is not subtracted. Context management, counters,
+argument passing, and effects on compiled optimization add further overhead.
+Very small scalar differences may be below useful profiling resolution. These
+branches are for locating costs; their FPS is not uninstrumented benchmark FPS.

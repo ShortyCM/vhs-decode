@@ -1,3 +1,4 @@
+from lddecode import redundancy_profile as _rp
 import copy
 import itertools
 import os
@@ -1910,50 +1911,55 @@ class Field:
     @profile
     def get_timings(self):
         pulses = self.rawpulses
-        hsync_typical = self.usectoinpx(self.rf.SysParams["hsyncPulseUS"])
+        with _rp.region(16):
+            hsync_typical = self.usectoinpx(self.rf.SysParams["hsyncPulseUS"])
 
-        # Some disks have odd sync levels resulting in short and/or long pulse lengths.
-        # So, take the median hsync and adjust the expected values accordingly
+            # Some disks have odd sync levels resulting in short and/or long pulse lengths.
+            # So, take the median hsync and adjust the expected values accordingly
 
-        hsync_checkmin = self.usectoinpx(self.rf.SysParams["hsyncPulseUS"] - 1.75)
-        hsync_checkmax = self.usectoinpx(self.rf.SysParams["hsyncPulseUS"] + 2)
+            hsync_checkmin = self.usectoinpx(self.rf.SysParams["hsyncPulseUS"] - 1.75)
+            hsync_checkmax = self.usectoinpx(self.rf.SysParams["hsyncPulseUS"] + 2)
 
         hlens = []
         for p in pulses:
             if inrange(p.len, hsync_checkmin, hsync_checkmax):
                 hlens.append(p.len)
 
-        LT = {}
-        LT = {}
+        with _rp.region(15):
+            LT = {}
+            LT = {}
         if len(hlens) > 0:
             LT["hsync_median"] = np.median(hlens)
         else:
             LT["hsync_median"] = self.rf.SysParams["hsyncPulseUS"]
 
-        hsync_min = LT["hsync_median"] + self.usectoinpx(-0.5)
-        hsync_max = LT["hsync_median"] + self.usectoinpx(0.5)
+        with _rp.region(16):
+            hsync_min = LT["hsync_median"] + self.usectoinpx(-0.5)
+            hsync_max = LT["hsync_median"] + self.usectoinpx(0.5)
 
         LT["hsync"] = (hsync_min, hsync_max)
 
         LT["hsync_offset"] = LT["hsync_median"] - hsync_typical
 
         # ??? - replace self.usectoinpx with local timings?
-        eq_min = (
-            self.usectoinpx(self.rf.SysParams["eqPulseUS"] - 0.5) + LT["hsync_offset"]
-        )
-        eq_max = (
-            self.usectoinpx(self.rf.SysParams["eqPulseUS"] + 0.5) + LT["hsync_offset"]
-        )
+        with _rp.region(16):
+            eq_min = (
+                self.usectoinpx(self.rf.SysParams["eqPulseUS"] - 0.5) + LT["hsync_offset"]
+            )
+            eq_max = (
+                self.usectoinpx(self.rf.SysParams["eqPulseUS"] + 0.5) + LT["hsync_offset"]
+            )
 
         LT["eq"] = (eq_min, eq_max)
 
-        vsync_min = (
-            self.usectoinpx(self.rf.SysParams["vsyncPulseUS"] * 0.5)
-            + LT["hsync_offset"]
-        )
-        vsync_max = (
-            self.usectoinpx(self.rf.SysParams["vsyncPulseUS"] + 1) + LT["hsync_offset"]
-        )
+        with _rp.region(16):
+            vsync_min = (
+                self.usectoinpx(self.rf.SysParams["vsyncPulseUS"] * 0.5)
+                + LT["hsync_offset"]
+            )
+            vsync_max = (
+                self.usectoinpx(self.rf.SysParams["vsyncPulseUS"] + 1) + LT["hsync_offset"]
+            )
 
         LT["vsync"] = (vsync_min, vsync_max)
 
@@ -2738,12 +2744,14 @@ class Field:
 
         return linelocs
 
+    @_rp.measured(1)
     def computewow_scaled(self):
         """Compute how much the line deviates fron expected,
            and scale input samples to output samples
         """
         actual_linelocs = np.array(self.linelocs, dtype=np.float64)
-        expected_linelocs = np.array([i * self.inlinelen for i in range(len(actual_linelocs))], dtype=np.float64)
+        with _rp.region(9):
+            expected_linelocs = np.array([i * self.inlinelen for i in range(len(actual_linelocs))], dtype=np.float64)
 
         outscale = self.inlinelen / self.outlinelen
         outsamples = self.outlinecount * self.outlinelen
@@ -2763,7 +2771,8 @@ class Field:
         spl = interpolate.make_interp_spline(expected_linelocs, actual_linelocs, k=k, bc_type=bc_type, check_finite=False)
 
         # scale up to compute where the output pixel would fall on the interpolated line loc
-        scaled_pixel_locs = np.arange(outsamples + outline_offset) * outscale
+        with _rp.region(9):
+            scaled_pixel_locs = np.arange(outsamples + outline_offset) * outscale
 
         # interpolate the expected pixel location
         self.interpolated_pixel_locs = spl(scaled_pixel_locs)
@@ -2850,8 +2859,7 @@ class Field:
             self.lineoffset,
             outwidth,
             wow_level_adjust_smoothing=self.wow_level_adjust_smoothing,
-            shift=shift
-        )
+            shift=shift, _profile=_rp.native_buffer())
 
         if self.rf.decode_digital_audio:
             self.efmout = self.data["efm"][
@@ -2908,21 +2916,21 @@ class Field:
         data = self.data["video"]["demod"]
         curzc = calczc(
             data,
-            int(linestart + self.usectoinpx(2)),
-            self.rf.iretohz(50),
-            count=int(self.usectoinpx(12)),
+            int(linestart + _rp.value(17, lambda: self.usectoinpx(2))),
+            _rp.value(8, lambda: self.rf.iretohz(50)),
+            count=int(_rp.value(17, lambda: self.usectoinpx(12))),
         )
 
         zc = []
         while curzc is not None:
             zc.append(
-                (curzc, data[int(curzc - self.usectoinpx(0.5))] < self.rf.iretohz(50))
+                (curzc, data[int(curzc - _rp.value((8, 17), lambda: self.usectoinpx(0.5)))] < _rp.value(8, lambda: self.rf.iretohz(50)))
             )
             curzc = calczc(
                 data,
-                curzc + self.usectoinpx(1.9),
-                self.rf.iretohz(50),
-                count=int(self.usectoinpx(0.2)),
+                curzc + _rp.value((8, 17), lambda: self.usectoinpx(1.9)),
+                _rp.value(8, lambda: self.rf.iretohz(50)),
+                count=int(_rp.value((8, 17), lambda: self.usectoinpx(0.2))),
             )
 
         usecgap = self.inpxtousec(np.diff([z[0] for z in zc]))
@@ -4652,10 +4660,10 @@ class LDdecode:
         for l in f.rf.SysParams["LD_VITS_whitelocs"]:
             wl_slice = f.lineslice_tbc(*l)
             # logger.info(l, np.mean(f.output_to_ire(f.dspicture[wl_slice])))
-            if inrange(np.mean(f.output_to_ire(f.dspicture[wl_slice])), 90, 110):
+            if inrange(_rp.value(5, lambda: np.mean(f.output_to_ire(f.dspicture[wl_slice]))), 90, 110):
                 f.whitesnr_slice = l
                 metrics["wSNR"] = self.calcpsnr(f, wl_slice)
-                metrics["whiteIRE"] = np.mean(f.output_to_ire(f.dspicture[wl_slice]))
+                metrics["whiteIRE"] = _rp.value(5, lambda: np.mean(f.output_to_ire(f.dspicture[wl_slice])))
 
                 rawslice = f.lineslice(*l)
                 rawdata = f.rawdata[

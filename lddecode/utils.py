@@ -1,3 +1,5 @@
+from lddecode import redundancy_profile as _rp
+from lddecode.redundancy_profile import native_ticks as _profile_ticks, native_record as _profile_record
 # A collection of helper functions used in dev notebooks and lddecode_core.py
 
 from collections import namedtuple
@@ -118,10 +120,12 @@ sinc_phase_count = 2**16
 
 
 @njit(nogil=True, cache=True, fastmath=True)
-def scale_field(buf, dsout, interpolated_pixel_locs, wowfactors, sinc_lut, lineoffset, outwidth, wow_level_adjust_smoothing = 0, level_adjust_threshold = 15, shift: float = 0.0):
+def scale_field(buf, dsout, interpolated_pixel_locs, wowfactors, sinc_lut, lineoffset, outwidth, wow_level_adjust_smoothing = 0, level_adjust_threshold = 15, shift: float = 0.0, _profile=None):
     # average out any unusual spikes in wow that happen on a per line basis
     # this indicates an hsync tbc error vs. being normal wow from playback speed variations
     # in this case for level adjusting we just want to fallback to the average wow to avoid a bright or dark line
+    _profile_start_3 = _profile_ticks() if _profile is not None else 0
+    _profile_start_12 = _profile_ticks() if _profile is not None else 0
     median = np.median(wowfactors)
     mad = np.median(np.abs(wowfactors - median)) # median absolute deviation
     threshold = level_adjust_threshold * mad if mad > 0 else 0.001  # fallback for no variance
@@ -131,6 +135,8 @@ def scale_field(buf, dsout, interpolated_pixel_locs, wowfactors, sinc_lut, lineo
         median,
         wowfactors
     )
+    if _profile is not None:
+        _profile_record(_profile, 12, _profile_ticks() - _profile_start_12)
 
     if wow_level_adjust_smoothing > 0:
         # removes oscillating brightness variations for video with lots of noise around the hsync pulses, i.e. noisy line locations result in noisy wow calculations
@@ -141,6 +147,8 @@ def scale_field(buf, dsout, interpolated_pixel_locs, wowfactors, sinc_lut, lineo
         for i in range(1, len(level_adjusts)):
             level_adjusts[i] = alpha * level_adjusts[i] + one_minus_alpha * level_adjusts[i-1]
 
+    if _profile is not None:
+        _profile_record(_profile, 3, _profile_ticks() - _profile_start_3)
     half_taps_m1 = (sinc_tap_count // 2) - 1
 
     dsout_start = outwidth * (lineoffset + 1)

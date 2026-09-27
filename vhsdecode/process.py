@@ -1,3 +1,4 @@
+from lddecode import redundancy_profile as _rp
 import os
 import time
 import numpy as np
@@ -529,7 +530,8 @@ class VHSDecode(ldd.LDdecode):
                     lastfieldwritten=self.lastFieldWritten,
                 )
 
-                _ = self.computeMetrics(f, None, verbose=True)
+                with _rp.region(4):
+                    _ = self.computeMetrics(f, None, verbose=True)
                 # if "blackToWhiteRFRatio" in metrics and adjusted is False:
                 #    keep = 900 if self.isCLV else 30
                 #    self.bw_ratios.append(metrics["blackToWhiteRFRatio"])
@@ -549,7 +551,8 @@ class VHSDecode(ldd.LDdecode):
                     sync_ire_diff = lddu.nb_abs(
                         self.rf.hztoire(sync_hz) - self.rf.DecoderParams["vsync_ire"]
                     )
-                    whitediff = lddu.nb_abs(self.rf.hztoire(ire100_hz) - actualwhiteIRE)
+                    with _rp.region(6):
+                        whitediff = lddu.nb_abs(self.rf.hztoire(ire100_hz) - actualwhiteIRE)
                     ire0_diff = lddu.nb_abs(self.rf.hztoire(ire0_hz))
 
                     acceptable_diff = 2 if self.fields_written else 0.5
@@ -1447,7 +1450,7 @@ class VHSRFDecode(ldd.RFDecode):
 
             plot_magnitude_density(
                 raw_data=data[: self.blocklen],
-                filtered_data=npfft.ifft(indata_fft).real,
+                filtered_data=_rp.value(7, lambda: npfft.ifft(indata_fft).real),
                 rfdecode=self,
             )
 
@@ -1456,7 +1459,7 @@ class VHSRFDecode(ldd.RFDecode):
 
             plot_input_data(
                 raw_data=data,
-                filtered_data=npfft.ifft(indata_fft).real,
+                filtered_data=_rp.value(7, lambda: npfft.ifft(indata_fft).real),
                 env=env,
                 env_mean=env_mean,
                 raw_fft=indata_fft_copy,
