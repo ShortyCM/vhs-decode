@@ -94,7 +94,7 @@ class VHSDecode(ldd.LDdecode):
         # This is kinda hacky and should be sorted in a better way ideally.
         temp_init = ldd.DemodCache.__init__
         ldd.DemodCache.__init__ = _demodcache_dummy
-        self._processing_thread_pool = ThreadPoolExecutor(max_workers=2)
+        self._processing_thread_pool = ThreadPoolExecutor(max_workers=3)
 
         # HACK - override this in a hacky way for now to skip generating some filters we don't use.
         # including one that requires > 20 mhz sample rate.
