@@ -1,3 +1,4 @@
+from lddecode import redundancy_profile as _rp
 import numpy as np
 import numba as nb
 
@@ -1245,16 +1246,17 @@ class FieldShared:
 
     def get_pulses(self, do_level_detect=False):
         demod = self.data["video"]["demod_05"]
-        hsync_len = self.rf.pulse_hsync_len
-        front_porch_len = self.rf.pulse_front_porch_len
-        line_len = self.rf.pulse_line_len
-        approx_transition = self.rf.pulse_approx_transition
+        with _rp.region(13):
+            hsync_len = self.rf.pulse_hsync_len
+            front_porch_len = self.rf.pulse_front_porch_len
+            line_len = self.rf.pulse_line_len
+            approx_transition = self.rf.pulse_approx_transition
 
         # 1. Filter out high frequencies
         # boxcar FIR filter to remove high frequency data (color burst, pilot tone)
         filtered_demod = np.convolve(
             demod,
-            self.rf.pulse_filter_kernel,
+            _rp.value(14, lambda: self.rf.pulse_filter_kernel),
             mode='same',
         )
 
@@ -2079,16 +2081,17 @@ class FieldShared:
         # Get the defaults - this works somehow because python.
         LT = super(FieldShared, self).get_timings()
 
-        fixed_timing_px = self.rf.fixed_timing_px
-        hsync_min = LT["hsync_median"] + fixed_timing_px["vhs_hsync_minus_0_7"]
-        hsync_max = LT["hsync_median"] + fixed_timing_px["vhs_hsync_plus_0_7"]
+        with _rp.region(16):
+            fixed_timing_px = self.rf.fixed_timing_px
+            hsync_min = LT["hsync_median"] + fixed_timing_px["vhs_hsync_minus_0_7"]
+            hsync_max = LT["hsync_median"] + fixed_timing_px["vhs_hsync_plus_0_7"]
 
-        LT["hsync"] = (hsync_min, hsync_max)
+            LT["hsync"] = (hsync_min, hsync_max)
 
-        eq_min = fixed_timing_px["vhs_eq_min"] + LT["hsync_offset"]
-        eq_max = fixed_timing_px["vhs_eq_max"] + LT["hsync_offset"]
+            eq_min = fixed_timing_px["vhs_eq_min"] + LT["hsync_offset"]
+            eq_max = fixed_timing_px["vhs_eq_max"] + LT["hsync_offset"]
 
-        LT["eq"] = (eq_min, eq_max)
+            LT["eq"] = (eq_min, eq_max)
 
         return LT
 
@@ -2141,7 +2144,7 @@ class FieldPALShared(FieldShared, ldd.FieldPAL):
         self.track_phase_set = False
         self.ire0_backporch = (96, 160)
         self.burst_detected_line = 0
-        self.fsc_ratio = self.rf.fsc_ratio
+        self.fsc_ratio = _rp.value(11, lambda: self.rf.fsc_ratio)
 
     @staticmethod
     def _sync_to_burst(
@@ -2207,7 +2210,7 @@ class FieldPALShared(FieldShared, ldd.FieldPAL):
                 FieldPALShared._sync_to_burst(
                     linelocs,
                     self.outlinelen,
-                    self.rf.fsc_hz,
+                    _rp.value(11, lambda: self.rf.fsc_hz),
                     self.fsc_ratio,
                     self.even_burst_phase_avg,
                     self.odd_burst_phase_avg,
@@ -2230,7 +2233,7 @@ class FieldNTSCShared(FieldShared, ldd.FieldNTSC):
         self.fieldPhaseID = None
         self.ire0_backporch = (74, 124)
         self.burst_detected_line = 0
-        self.fsc_ratio = self.rf.fsc_ratio
+        self.fsc_ratio = _rp.value(11, lambda: self.rf.fsc_ratio)
 
 
     @staticmethod
@@ -2287,7 +2290,7 @@ class FieldNTSCShared(FieldShared, ldd.FieldNTSC):
                     FieldNTSCShared._sync_to_burst(
                         linelocs,
                         self.outlinelen,
-                        self.rf.fsc_hz,
+                        _rp.value(11, lambda: self.rf.fsc_hz),
                         self.fsc_ratio,
                         self.burst_phase_avg,
                         self.phase_sequence,
@@ -2298,7 +2301,7 @@ class FieldNTSCShared(FieldShared, ldd.FieldNTSC):
                     FieldPALShared._sync_to_burst(
                         linelocs,
                         self.outlinelen,
-                        self.rf.fsc_hz,
+                        _rp.value(11, lambda: self.rf.fsc_hz),
                         self.fsc_ratio,
                         self.even_burst_phase_avg,
                         self.odd_burst_phase_avg,

@@ -1,3 +1,5 @@
+from lddecode import redundancy_profile as _rp
+from lddecode.redundancy_profile import native_ticks as _profile_ticks, native_record as _profile_record
 # A collection of helper functions used in dev notebooks and lddecode_core.py
 
 from collections import namedtuple
@@ -118,7 +120,9 @@ sinc_phase_count = 2**16
 
 
 @njit(nogil=True, cache=True, fastmath=True)
-def scale_field_prepare(wowfactors, outwidth, wow_level_adjust_smoothing = 0, level_adjust_threshold = 15):
+def scale_field_prepare(wowfactors, outwidth, wow_level_adjust_smoothing = 0, level_adjust_threshold = 15, _profile=None):
+    _profile_start_3 = _profile_ticks() if _profile is not None else 0
+    _profile_start_12 = _profile_ticks() if _profile is not None else 0
     median = np.median(wowfactors)
     abs_deviation = np.abs(wowfactors - median)
     mad = np.median(abs_deviation)
@@ -129,6 +133,8 @@ def scale_field_prepare(wowfactors, outwidth, wow_level_adjust_smoothing = 0, le
         median,
         wowfactors
     )
+    if _profile is not None:
+        _profile_record(_profile, 12, _profile_ticks() - _profile_start_12)
 
     if wow_level_adjust_smoothing > 0:
         alpha = 1 / (wow_level_adjust_smoothing * outwidth)
@@ -137,6 +143,8 @@ def scale_field_prepare(wowfactors, outwidth, wow_level_adjust_smoothing = 0, le
         for i in range(1, len(level_adjusts)):
             level_adjusts[i] = alpha * level_adjusts[i] + one_minus_alpha * level_adjusts[i-1]
 
+    if _profile is not None:
+        _profile_record(_profile, 3, _profile_ticks() - _profile_start_3)
     return level_adjusts
 
 

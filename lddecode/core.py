@@ -1,3 +1,4 @@
+from lddecode import redundancy_profile as _rp
 import copy
 import itertools
 import os
@@ -1910,27 +1911,28 @@ class Field:
     @profile
     def get_timings(self):
         pulses = self.rawpulses
-        fixed_timing_px = getattr(self.rf, "fixed_timing_px", None)
-        if fixed_timing_px is None:
-            hsync_typical = self.usectoinpx(self.rf.SysParams["hsyncPulseUS"])
-            hsync_checkmin = self.usectoinpx(self.rf.SysParams["hsyncPulseUS"] - 1.75)
-            hsync_checkmax = self.usectoinpx(self.rf.SysParams["hsyncPulseUS"] + 2)
-            hsync_minus_0_5 = self.usectoinpx(-0.5)
-            hsync_plus_0_5 = self.usectoinpx(0.5)
-            eq_minus_0_5 = self.usectoinpx(self.rf.SysParams["eqPulseUS"] - 0.5)
-            eq_plus_0_5 = self.usectoinpx(self.rf.SysParams["eqPulseUS"] + 0.5)
-            vsync_half = self.usectoinpx(self.rf.SysParams["vsyncPulseUS"] * 0.5)
-            vsync_plus_1 = self.usectoinpx(self.rf.SysParams["vsyncPulseUS"] + 1)
-        else:
-            hsync_typical = fixed_timing_px["hsync_typical"]
-            hsync_checkmin = fixed_timing_px["hsync_checkmin"]
-            hsync_checkmax = fixed_timing_px["hsync_checkmax"]
-            hsync_minus_0_5 = fixed_timing_px["hsync_minus_0_5"]
-            hsync_plus_0_5 = fixed_timing_px["hsync_plus_0_5"]
-            eq_minus_0_5 = fixed_timing_px["eq_minus_0_5"]
-            eq_plus_0_5 = fixed_timing_px["eq_plus_0_5"]
-            vsync_half = fixed_timing_px["vsync_half"]
-            vsync_plus_1 = fixed_timing_px["vsync_plus_1"]
+        with _rp.region(16):
+            fixed_timing_px = getattr(self.rf, "fixed_timing_px", None)
+            if fixed_timing_px is None:
+                hsync_typical = self.usectoinpx(self.rf.SysParams["hsyncPulseUS"])
+                hsync_checkmin = self.usectoinpx(self.rf.SysParams["hsyncPulseUS"] - 1.75)
+                hsync_checkmax = self.usectoinpx(self.rf.SysParams["hsyncPulseUS"] + 2)
+                hsync_minus_0_5 = self.usectoinpx(-0.5)
+                hsync_plus_0_5 = self.usectoinpx(0.5)
+                eq_minus_0_5 = self.usectoinpx(self.rf.SysParams["eqPulseUS"] - 0.5)
+                eq_plus_0_5 = self.usectoinpx(self.rf.SysParams["eqPulseUS"] + 0.5)
+                vsync_half = self.usectoinpx(self.rf.SysParams["vsyncPulseUS"] * 0.5)
+                vsync_plus_1 = self.usectoinpx(self.rf.SysParams["vsyncPulseUS"] + 1)
+            else:
+                hsync_typical = fixed_timing_px["hsync_typical"]
+                hsync_checkmin = fixed_timing_px["hsync_checkmin"]
+                hsync_checkmax = fixed_timing_px["hsync_checkmax"]
+                hsync_minus_0_5 = fixed_timing_px["hsync_minus_0_5"]
+                hsync_plus_0_5 = fixed_timing_px["hsync_plus_0_5"]
+                eq_minus_0_5 = fixed_timing_px["eq_minus_0_5"]
+                eq_plus_0_5 = fixed_timing_px["eq_plus_0_5"]
+                vsync_half = fixed_timing_px["vsync_half"]
+                vsync_plus_1 = fixed_timing_px["vsync_plus_1"]
 
         # Some disks have odd sync levels resulting in short and/or long pulse lengths.
         # So, take the median hsync and adjust the expected values accordingly
@@ -1940,26 +1942,30 @@ class Field:
             if inrange(p.len, hsync_checkmin, hsync_checkmax):
                 hlens.append(p.len)
 
-        LT = {}
+        with _rp.region(15):
+            LT = {}
         if len(hlens) > 0:
             LT["hsync_median"] = np.median(hlens)
         else:
             LT["hsync_median"] = self.rf.SysParams["hsyncPulseUS"]
 
-        hsync_min = LT["hsync_median"] + hsync_minus_0_5
-        hsync_max = LT["hsync_median"] + hsync_plus_0_5
+        with _rp.region(16):
+            hsync_min = LT["hsync_median"] + hsync_minus_0_5
+            hsync_max = LT["hsync_median"] + hsync_plus_0_5
 
         LT["hsync"] = (hsync_min, hsync_max)
 
         LT["hsync_offset"] = LT["hsync_median"] - hsync_typical
 
-        eq_min = eq_minus_0_5 + LT["hsync_offset"]
-        eq_max = eq_plus_0_5 + LT["hsync_offset"]
+        with _rp.region(16):
+            eq_min = eq_minus_0_5 + LT["hsync_offset"]
+            eq_max = eq_plus_0_5 + LT["hsync_offset"]
 
         LT["eq"] = (eq_min, eq_max)
 
-        vsync_min = vsync_half + LT["hsync_offset"]
-        vsync_max = vsync_plus_1 + LT["hsync_offset"]
+        with _rp.region(16):
+            vsync_min = vsync_half + LT["hsync_offset"]
+            vsync_max = vsync_plus_1 + LT["hsync_offset"]
 
         LT["vsync"] = (vsync_min, vsync_max)
 
@@ -2744,6 +2750,7 @@ class Field:
 
         return linelocs
 
+    @_rp.measured(1)
     def computewow_scaled(self):
         """Compute how much the line deviates fron expected,
            and scale input samples to output samples
@@ -2759,28 +2766,29 @@ class Field:
         # per field, and the same grids are also rebuilt for every following
         # field, so retain them on the RF decoder and reuse them while the
         # geometry is unchanged.
-        grid_key = (
-            len(actual_linelocs),
-            self.inlinelen,
-            self.outlinelen,
-            self.outlinecount,
-            self.lineoffset,
-        )
-        grid_cache = getattr(self.rf, "_computewow_grid_cache", None)
-        if grid_cache is not None and grid_cache[0] == grid_key:
-            expected_linelocs = grid_cache[1]
-            scaled_pixel_locs = grid_cache[2]
-        else:
-            expected_linelocs = np.array(
-                [i * self.inlinelen for i in range(len(actual_linelocs))],
-                dtype=np.float64,
+        with _rp.region(9):
+            grid_key = (
+                len(actual_linelocs),
+                self.inlinelen,
+                self.outlinelen,
+                self.outlinecount,
+                self.lineoffset,
             )
-            scaled_pixel_locs = np.arange(outsamples + outline_offset) * outscale
-            self.rf._computewow_grid_cache = (
-                grid_key,
-                expected_linelocs,
-                scaled_pixel_locs,
-            )
+            grid_cache = getattr(self.rf, "_computewow_grid_cache", None)
+            if grid_cache is not None and grid_cache[0] == grid_key:
+                expected_linelocs = grid_cache[1]
+                scaled_pixel_locs = grid_cache[2]
+            else:
+                expected_linelocs = np.array(
+                    [i * self.inlinelen for i in range(len(actual_linelocs))],
+                    dtype=np.float64,
+                )
+                scaled_pixel_locs = np.arange(outsamples + outline_offset) * outscale
+                self.rf._computewow_grid_cache = (
+                    grid_key,
+                    expected_linelocs,
+                    scaled_pixel_locs,
+                )
 
         if self.wow_interpolation_method == 'linear':
             k=1
@@ -2879,14 +2887,13 @@ class Field:
         ):
             interpolated_pixel_locs = self.interpolated_pixel_locs
             wowfactors = self.wowfactors
-            level_adjusts = self._scale_field_level_adjusts
+            level_adjusts = _rp.value(3, lambda: self._scale_field_level_adjusts)
         else:
             interpolated_pixel_locs, wowfactors = self.computewow_scaled()
             level_adjusts = scale_field_prepare(
                 wowfactors,
                 outwidth,
-                self.wow_level_adjust_smoothing,
-            )
+                self.wow_level_adjust_smoothing, _profile=_rp.native_buffer())
             self._scale_field_level_adjusts = level_adjusts
 
         scale_field_apply(
@@ -2953,22 +2960,23 @@ class Field:
     def decodephillipscode(self, linenum):
         linestart = self.linelocs[linenum]
         data = self.data["video"]["demod"]
-        ire50_hz = self.rf.iretohz(50)
-        phillips_timing_px = getattr(self.rf, "phillips_timing_px", None)
-        if phillips_timing_px is None:
-            half_usec = self.usectoinpx(0.5)
-            next_zc_offset = self.usectoinpx(1.9)
-            next_zc_count = int(self.usectoinpx(0.2))
-            first_zc_offset = self.usectoinpx(2)
-            first_zc_count = int(self.usectoinpx(12))
-        else:
-            (
-                half_usec,
-                next_zc_offset,
-                next_zc_count,
-                first_zc_offset,
-                first_zc_count,
-            ) = phillips_timing_px
+        ire50_hz = _rp.value(8, lambda: self.rf.iretohz(50))
+        with _rp.region((8, 17)):
+            phillips_timing_px = getattr(self.rf, "phillips_timing_px", None)
+            if phillips_timing_px is None:
+                half_usec = self.usectoinpx(0.5)
+                next_zc_offset = self.usectoinpx(1.9)
+                next_zc_count = int(self.usectoinpx(0.2))
+                first_zc_offset = self.usectoinpx(2)
+                first_zc_count = int(self.usectoinpx(12))
+            else:
+                (
+                    half_usec,
+                    next_zc_offset,
+                    next_zc_count,
+                    first_zc_offset,
+                    first_zc_count,
+                ) = phillips_timing_px
 
         curzc = calczc(
             data,
@@ -4715,12 +4723,13 @@ class LDdecode:
 
         for l in f.rf.SysParams["LD_VITS_whitelocs"]:
             wl_slice = f.lineslice_tbc(*l)
-            white_ire = np.mean(f.output_to_ire(f.dspicture[wl_slice]))
+            white_ire = _rp.value(5, lambda: np.mean(f.output_to_ire(f.dspicture[wl_slice])))
             # logger.info(l, white_ire)
             if inrange(white_ire, 90, 110):
                 f.whitesnr_slice = l
                 metrics["wSNR"] = self.calcpsnr(f, wl_slice)
-                metrics["whiteIRE"] = white_ire
+                with _rp.region(5):
+                    metrics["whiteIRE"] = white_ire
 
                 rawslice = f.lineslice(*l)
                 rawdata = f.rawdata[
