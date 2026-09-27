@@ -28,7 +28,7 @@ from . import efm_pll
 from . import ac3rf
 from .utils import ldf_pipe, traceback
 from .utils import nb_mean, nb_median, nb_round, nb_min, nb_max, nb_abs, nb_absmax, n_orgt
-from .utils import polar2z, sqsum, genwave, dsa_rescale_and_clip, scale, scale_field, rms
+from .utils import polar2z, sqsum, genwave, dsa_rescale_and_clip, scale, scale_field, scale_field_threaded, rms
 from .utils import findpeaks, findpulses, calczc, inrange, roundfloat
 from .utils import LRUupdate, clb_findbursts, angular_mean_helper, phase_distance
 from .utils import build_hilbert, unwrap_hilbert, emphasis_iir, filtfft
@@ -2782,7 +2782,8 @@ class Field:
         audio=0,
         final=False,
         lastfieldwritten=None,
-        shift: float = 0.0
+        shift: float = 0.0,
+        scale_executor=None
     ):
         _profile_downscale_start = time.perf_counter()
 
@@ -2848,17 +2849,31 @@ class Field:
         _profile_wow = time.perf_counter() - _profile_t0
 
         _profile_t0 = time.perf_counter()
-        scale_field(
-            self.data["video"][channel].astype(np.float32, copy=False),
-            dsout,
-            interpolated_pixel_locs,
-            wowfactors,
-            self.rf.downscale_sinc_lut,
-            self.lineoffset,
-            outwidth,
-            wow_level_adjust_smoothing=self.wow_level_adjust_smoothing,
-            shift=shift
-        )
+        if scale_executor is None:
+            scale_field(
+                self.data["video"][channel].astype(np.float32, copy=False),
+                dsout,
+                interpolated_pixel_locs,
+                wowfactors,
+                self.rf.downscale_sinc_lut,
+                self.lineoffset,
+                outwidth,
+                wow_level_adjust_smoothing=self.wow_level_adjust_smoothing,
+                shift=shift
+            )
+        else:
+            scale_field_threaded(
+                self.data["video"][channel].astype(np.float32, copy=False),
+                dsout,
+                interpolated_pixel_locs,
+                wowfactors,
+                self.rf.downscale_sinc_lut,
+                self.lineoffset,
+                outwidth,
+                scale_executor,
+                wow_level_adjust_smoothing=self.wow_level_adjust_smoothing,
+                shift=shift
+            )
         _profile_scale_field = time.perf_counter() - _profile_t0
 
         if self.rf.decode_digital_audio:
