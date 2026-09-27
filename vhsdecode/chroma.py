@@ -2139,10 +2139,20 @@ def decode_chroma(field, do_chroma_deemphasis=False):
 
 
 def get_burst_area(field):
-    burst_start = math.floor(field.usectooutpx(field.rf.SysParams["colorBurstUS"][0])) - 4
-    burst_end = math.ceil(field.usectooutpx(field.rf.SysParams["colorBurstUS"][1])) + 8
+    color_burst_us = field.rf.SysParams["colorBurstUS"]
+    outfreq = field.rf.SysParams["outfreq"]
+    cache_key = (color_burst_us[0], color_burst_us[1], outfreq)
+
+    cached = getattr(field.rf, "_burst_area_cache", None)
+    if cached is not None and cached[0] == cache_key:
+        return cached[1]
+
+    burst_start = math.floor(color_burst_us[0] * outfreq) - 4
+    burst_end = math.ceil(color_burst_us[1] * outfreq) + 8
 
     # burst length must be multiple of 4
     burst_end = burst_end - ((burst_end - burst_start) % 4)
 
-    return burst_start, burst_end
+    burst_area = (burst_start, burst_end)
+    field.rf._burst_area_cache = (cache_key, burst_area)
+    return burst_area
