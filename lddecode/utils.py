@@ -231,15 +231,15 @@ def scale_field_threaded(buf, dsout, interpolated_pixel_locs, wowfactors, sinc_l
         _profile_prep_median = time.perf_counter() - _profile_t0
 
         _profile_t0 = time.perf_counter()
-        mad = np.median(np.abs(wowfactors - median))
+        mad = _scale_field_mad(wowfactors, median)
         _profile_prep_mad = time.perf_counter() - _profile_t0
 
         _profile_t0 = time.perf_counter()
-        threshold = level_adjust_threshold * mad if mad > 0 else 0.001
-        level_adjusts = np.where(
-            np.abs(wowfactors - median) > threshold,
-            median,
+        level_adjusts = _scale_field_clamp(
             wowfactors,
+            median,
+            mad,
+            level_adjust_threshold,
         )
         _profile_prep_clamp = time.perf_counter() - _profile_t0
 
