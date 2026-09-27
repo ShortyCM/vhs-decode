@@ -543,6 +543,11 @@ class VHSDecode(ldd.LDdecode):
                     sync_ire_diff = lddu.nb_abs(
                         self.rf.hztoire(sync_hz) - self.rf.DecoderParams["vsync_ire"]
                     )
+                    # This preserves the existing behavior while avoiding a second identical
+                    # hztoire(ire100_hz) conversion. As written, this compares the white
+                    # level against itself and therefore yields zero for finite values;
+                    # unlike the sync and IRE0 checks below, this may not have been the
+                    # originally intended comparison.
                     whitediff = lddu.nb_abs(actualwhiteIRE - actualwhiteIRE)
                     ire0_diff = lddu.nb_abs(self.rf.hztoire(ire0_hz))
 
