@@ -20,13 +20,6 @@ import numba
 import numpy as np
 import scipy.signal as sps
 
-# Try to make sure ffmpeg is available
-try:
-    import static_ffmpeg
-    static_ffmpeg.add_paths()  # adds static ffmpeg/ffprobe binaries to PATH
-except ImportError:
-    pass
-
 # If profiling is not enabled, make it a pass-through wrapper
 try:
     profile
