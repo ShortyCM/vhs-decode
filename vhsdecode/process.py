@@ -198,6 +198,8 @@ class VHSDecode(ldd.LDdecode):
             "downscale": 0.0,
             "luma_wow": 0.0,
             "luma_scale_field": 0.0,
+            "luma_scale_prep": 0.0,
+            "luma_scale_resample": 0.0,
             "luma_output": 0.0,
             "luma_other": 0.0,
             "luma_y_comb": 0.0,
@@ -206,6 +208,8 @@ class VHSDecode(ldd.LDdecode):
             "chroma_to_u16": 0.0,
             "chroma_wow": 0.0,
             "chroma_scale_field": 0.0,
+            "chroma_scale_prep": 0.0,
+            "chroma_scale_resample": 0.0,
             "chroma_output": 0.0,
             "chroma_other": 0.0,
             "chroma_tbc": 0.0,
@@ -446,7 +450,9 @@ class VHSDecode(ldd.LDdecode):
                 f"decode_wait={p['decode_wait']:.3f}s, "
                 f"downscale={p['downscale']:.3f}s "
                 f"(luma: wow={p['luma_wow']:.3f}s, "
-                f"scale_field={p['luma_scale_field']:.3f}s, "
+                f"scale_field={p['luma_scale_field']:.3f}s "
+                f"(prep={p['luma_scale_prep']:.3f}s, "
+                f"resample={p['luma_scale_resample']:.3f}s), "
                 f"base_output={p['luma_output']:.3f}s, "
                 f"base_other={p['luma_other']:.3f}s, "
                 f"y_comb={p['luma_y_comb']:.3f}s, "
@@ -454,7 +460,9 @@ class VHSDecode(ldd.LDdecode):
                 f"chroma: process={p['chroma_process']:.3f}s, "
                 f"to_u16={p['chroma_to_u16']:.3f}s, "
                 f"wow={p['chroma_wow']:.3f}s, "
-                f"scale_field={p['chroma_scale_field']:.3f}s, "
+                f"scale_field={p['chroma_scale_field']:.3f}s "
+                f"(prep={p['chroma_scale_prep']:.3f}s, "
+                f"resample={p['chroma_scale_resample']:.3f}s), "
                 f"base_output={p['chroma_output']:.3f}s, "
                 f"other={p['chroma_other']:.3f}s, "
                 f"tbc={p['chroma_tbc']:.3f}s, "
@@ -606,6 +614,8 @@ class VHSDecode(ldd.LDdecode):
                 if _luma_profile is not None:
                     self._pipeline_profile["luma_wow"] += _luma_profile.get("wow", 0.0)
                     self._pipeline_profile["luma_scale_field"] += _luma_profile.get("scale_field", 0.0)
+                    self._pipeline_profile["luma_scale_prep"] += _luma_profile.get("scale_prep", 0.0)
+                    self._pipeline_profile["luma_scale_resample"] += _luma_profile.get("scale_resample", 0.0)
                     self._pipeline_profile["luma_output"] += _luma_profile.get("output", 0.0)
                     self._pipeline_profile["luma_other"] += _luma_profile.get("other", 0.0)
                     self._pipeline_profile["luma_y_comb"] += _luma_profile.get("y_comb", 0.0)
@@ -618,6 +628,8 @@ class VHSDecode(ldd.LDdecode):
                     _chroma_base = _chroma_profile.get("base", {})
                     self._pipeline_profile["chroma_wow"] += _chroma_base.get("wow", 0.0)
                     self._pipeline_profile["chroma_scale_field"] += _chroma_base.get("scale_field", 0.0)
+                    self._pipeline_profile["chroma_scale_prep"] += _chroma_base.get("scale_prep", 0.0)
+                    self._pipeline_profile["chroma_scale_resample"] += _chroma_base.get("scale_resample", 0.0)
                     self._pipeline_profile["chroma_output"] += _chroma_base.get("output", 0.0)
                     _chroma_base_total = (
                         _chroma_base.get("wow", 0.0)
