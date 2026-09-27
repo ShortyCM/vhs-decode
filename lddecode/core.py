@@ -2839,8 +2839,15 @@ class Field:
                 # return values will still be in audio_rv later
                 downscale_audio(*dsa_args)
 
+        _profile_downscale_start = time.perf_counter()
+
         dsout = np.zeros((linesout * outwidth), dtype=np.float32)
+
+        _profile_t0 = time.perf_counter()
         interpolated_pixel_locs, wowfactors = self.computewow_scaled()
+        _profile_wow = time.perf_counter() - _profile_t0
+
+        _profile_t0 = time.perf_counter()
         scale_field(
             self.data["video"][channel].astype(np.float32, copy=False),
             dsout,
@@ -2852,6 +2859,7 @@ class Field:
             wow_level_adjust_smoothing=self.wow_level_adjust_smoothing,
             shift=shift
         )
+        _profile_scale_field = time.perf_counter() - _profile_t0
 
         if self.rf.decode_digital_audio:
             self.efmout = self.data["efm"][
@@ -2860,8 +2868,11 @@ class Field:
         else:
             self.efmout = None
 
+        _profile_output = 0.0
         if final:
+            _profile_t0 = time.perf_counter()
             dsout = self.hz_to_output(dsout)
+            _profile_output = time.perf_counter() - _profile_t0
             self.dspicture = dsout
 
         if audio != 0 and self.rf.decode_analog_audio:
@@ -2870,6 +2881,19 @@ class Field:
 
             self.dsaudio = audio_rv["dsaudio"]
             self.audio_next_offset = audio_rv["audio_next_offset"]
+
+        self._profile_downscale = {
+            "wow": _profile_wow,
+            "scale_field": _profile_scale_field,
+            "output": _profile_output,
+            "other": (
+                time.perf_counter()
+                - _profile_downscale_start
+                - _profile_wow
+                - _profile_scale_field
+                - _profile_output
+            ),
+        }
 
         return dsout, self.dsaudio, self.efmout
 
