@@ -1251,13 +1251,11 @@ class FieldShared:
 
         # 1. Filter out high frequencies
         # boxcar FIR filter to remove high frequency data (color burst, pilot tone)
-        approx_transition = self.rf.pulse_approx_transition
-        window_size = max(3, int(approx_transition))
-        if window_size % 2 == 0:
-            window_size += 1
-
-        kernel = np.ones(window_size, dtype=np.float64) / window_size
-        filtered_demod = np.convolve(demod, kernel, mode='same')
+        filtered_demod = np.convolve(
+            demod,
+            self.rf.pulse_filter_kernel,
+            mode='same',
+        )
 
         if do_level_detect:
             # try to detect the levels by measuring the lower 5%, and 25% of data
