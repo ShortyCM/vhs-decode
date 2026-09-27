@@ -721,6 +721,12 @@ class VHSRFDecode(ldd.RFDecode):
         ) * default_linefreq
         self.pulse_line_len = round(self.SysParams["line_period"] * default_linefreq)
         self.pulse_approx_transition = 0.22 * default_linefreq
+        pulse_window_size = max(3, int(self.pulse_approx_transition))
+        if pulse_window_size % 2 == 0:
+            pulse_window_size += 1
+        self.pulse_filter_kernel = (
+            np.ones(pulse_window_size, dtype=np.float64) / pulse_window_size
+        )
 
         # Make (intentionally) mutable copies of HZ<->IRE levels
         # (NOTE: used by upstream functions, we use a namedtuple to keep const values already)
