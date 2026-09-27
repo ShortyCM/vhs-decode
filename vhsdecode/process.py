@@ -543,7 +543,7 @@ class VHSDecode(ldd.LDdecode):
                     sync_ire_diff = lddu.nb_abs(
                         self.rf.hztoire(sync_hz) - self.rf.DecoderParams["vsync_ire"]
                     )
-                    whitediff = lddu.nb_abs(self.rf.hztoire(ire100_hz) - actualwhiteIRE)
+                    whitediff = lddu.nb_abs(actualwhiteIRE - actualwhiteIRE)
                     ire0_diff = lddu.nb_abs(self.rf.hztoire(ire0_hz))
 
                     acceptable_diff = 2 if self.fields_written else 0.5
