@@ -2743,6 +2743,23 @@ class Field:
            and scale input samples to output samples
         """
         actual_linelocs = np.array(self.linelocs, dtype=np.float64)
+        cache_key = (
+            self.inlinelen,
+            self.outlinelen,
+            self.outlinecount,
+            self.lineoffset,
+            self.wow_interpolation_method,
+            actual_linelocs.shape,
+            actual_linelocs.tobytes(),
+        )
+
+        if (
+            getattr(self, "_computewow_scaled_cache_key", None) == cache_key
+            and hasattr(self, "interpolated_pixel_locs")
+            and hasattr(self, "wowfactors")
+        ):
+            return self.interpolated_pixel_locs, self.wowfactors
+
         expected_linelocs = np.array([i * self.inlinelen for i in range(len(actual_linelocs))], dtype=np.float64)
 
         outscale = self.inlinelen / self.outlinelen
@@ -2769,6 +2786,7 @@ class Field:
         self.interpolated_pixel_locs = spl(scaled_pixel_locs)
         # amount of wow for each scaled pixel
         self.wowfactors = spl(scaled_pixel_locs, 1)
+        self._computewow_scaled_cache_key = cache_key
 
         return self.interpolated_pixel_locs, self.wowfactors
 
