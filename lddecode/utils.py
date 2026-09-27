@@ -120,11 +120,12 @@ sinc_phase_count = 2**16
 @njit(nogil=True, cache=True, fastmath=True)
 def scale_field_prepare(wowfactors, outwidth, wow_level_adjust_smoothing = 0, level_adjust_threshold = 15):
     median = np.median(wowfactors)
-    mad = np.median(np.abs(wowfactors - median))
+    abs_deviation = np.abs(wowfactors - median)
+    mad = np.median(abs_deviation)
     threshold = level_adjust_threshold * mad if mad > 0 else 0.001
 
     level_adjusts = np.where(
-        np.abs(wowfactors - median) > threshold,
+        abs_deviation > threshold,
         median,
         wowfactors
     )
