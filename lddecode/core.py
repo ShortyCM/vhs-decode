@@ -1924,7 +1924,6 @@ class Field:
                 hlens.append(p.len)
 
         LT = {}
-        LT = {}
         if len(hlens) > 0:
             LT["hsync_median"] = np.median(hlens)
         else:
