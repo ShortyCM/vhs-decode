@@ -118,30 +118,44 @@ sinc_phase_count = 2**16
 
 
 @njit(nogil=True, cache=True, fastmath=True)
-def scale_field_prepare(wowfactors, outwidth, wow_level_adjust_smoothing = 0, level_adjust_threshold = 15):
+def scale_field_prepare(
+    wowfactors, outwidth, wow_level_adjust_smoothing=0, level_adjust_threshold=15
+):
+    """Prepare per-pixel level adjustments for reuse with the same wow map.
+
+    Replace outliers using the median absolute deviation, then optionally
+    smooth the adjustments. The returned array can be shared by luma and
+    chroma resampling after the field's line locations have been finalized.
+    """
     median = np.median(wowfactors)
     abs_deviation = np.abs(wowfactors - median)
     mad = np.median(abs_deviation)
     threshold = level_adjust_threshold * mad if mad > 0 else 0.001
 
-    level_adjusts = np.where(
-        abs_deviation > threshold,
-        median,
-        wowfactors
-    )
+    level_adjusts = np.where(abs_deviation > threshold, median, wowfactors)
 
     if wow_level_adjust_smoothing > 0:
         alpha = 1 / (wow_level_adjust_smoothing * outwidth)
         one_minus_alpha = 1 - alpha
 
         for i in range(1, len(level_adjusts)):
-            level_adjusts[i] = alpha * level_adjusts[i] + one_minus_alpha * level_adjusts[i-1]
+            level_adjusts[i] = alpha * level_adjusts[i] + one_minus_alpha * level_adjusts[i - 1]
 
     return level_adjusts
 
 
 @njit(nogil=True, cache=True, fastmath=True)
-def scale_field_apply(buf, dsout, interpolated_pixel_locs, level_adjusts, sinc_lut, lineoffset, outwidth, shift: float = 0.0):
+def scale_field_apply(
+    buf,
+    dsout,
+    interpolated_pixel_locs,
+    level_adjusts,
+    sinc_lut,
+    lineoffset,
+    outwidth,
+    shift: float = 0.0,
+):
+    """Resample into dsout using prepared coordinates and level adjustments."""
     half_taps_m1 = (sinc_tap_count // 2) - 1
 
     dsout_start = outwidth * (lineoffset + 1)
@@ -167,7 +181,19 @@ def scale_field_apply(buf, dsout, interpolated_pixel_locs, level_adjusts, sinc_l
 
 
 @njit(nogil=True, cache=True, fastmath=True)
-def scale_field(buf, dsout, interpolated_pixel_locs, wowfactors, sinc_lut, lineoffset, outwidth, wow_level_adjust_smoothing = 0, level_adjust_threshold = 15, shift: float = 0.0):
+def scale_field(
+    buf,
+    dsout,
+    interpolated_pixel_locs,
+    wowfactors,
+    sinc_lut,
+    lineoffset,
+    outwidth,
+    wow_level_adjust_smoothing=0,
+    level_adjust_threshold=15,
+    shift: float = 0.0,
+):
+    """Prepare level adjustments and resample using the original entry point."""
     level_adjusts = scale_field_prepare(
         wowfactors,
         outwidth,

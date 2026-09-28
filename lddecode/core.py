@@ -28,7 +28,16 @@ from . import efm_pll
 from . import ac3rf
 from .utils import ldf_pipe, traceback
 from .utils import nb_mean, nb_median, nb_round, nb_min, nb_max, nb_abs, nb_absmax, n_orgt
-from .utils import polar2z, sqsum, genwave, dsa_rescale_and_clip, scale, scale_field, scale_field_prepare, scale_field_apply, rms
+from .utils import (
+    dsa_rescale_and_clip,
+    genwave,
+    polar2z,
+    rms,
+    scale,
+    scale_field_apply,
+    scale_field_prepare,
+    sqsum,
+)
 from .utils import findpeaks, findpulses, calczc, inrange, roundfloat
 from .utils import LRUupdate, clb_findbursts, angular_mean_helper, phase_distance
 from .utils import build_hilbert, unwrap_hilbert, emphasis_iir, filtfft
@@ -2813,7 +2822,7 @@ class Field:
         final=False,
         lastfieldwritten=None,
         shift: float = 0.0,
-        reuse_scale_state: bool = False
+        reuse_scale_state: bool = False,
     ):
         if lineinfo is None:
             lineinfo = self.linelocs
@@ -2897,7 +2906,7 @@ class Field:
             self.rf.downscale_sinc_lut,
             self.lineoffset,
             outwidth,
-            shift
+            shift,
         )
 
         if self.rf.decode_digital_audio:
@@ -2979,9 +2988,7 @@ class Field:
 
         zc = []
         while curzc is not None:
-            zc.append(
-                (curzc, data[int(curzc - half_usec)] < ire50_hz)
-            )
+            zc.append((curzc, data[int(curzc - half_usec)] < ire50_hz))
             curzc = calczc(
                 data,
                 curzc + next_zc_offset,

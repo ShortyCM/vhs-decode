@@ -708,9 +708,7 @@ class VHSRFDecode(ldd.RFDecode):
         # Fixed format values used repeatedly throughout field/chroma processing.
         self.fsc_hz = self.SysParams["fsc_mhz"] * 1e6
         self.fsc_ratio = self.SysParams["outfreq"] / self.SysParams["fsc_mhz"]
-        self.chroma_pixel_indices = np.arange(
-            self.SysParams["outlinelen"], dtype=np.float64
-        )
+        self.chroma_pixel_indices = np.arange(self.SysParams["outlinelen"], dtype=np.float64)
 
         # get_pulses() used to recompute these same time-to-sample conversions
         # for every field. Preserve the exact default-line conversion used by
@@ -725,18 +723,14 @@ class VHSRFDecode(ldd.RFDecode):
         )
         self.pulse_hsync_len = self.SysParams["hsyncPulseUS"] * default_linefreq
         self.pulse_front_porch_len = (
-            self.SysParams["activeVideoUS"][0]
-            - self.SysParams["hsyncPulseUS"]
-            - 2
+            self.SysParams["activeVideoUS"][0] - self.SysParams["hsyncPulseUS"] - 2
         ) * default_linefreq
         self.pulse_line_len = round(self.SysParams["line_period"] * default_linefreq)
         self.pulse_approx_transition = 0.22 * default_linefreq
         pulse_window_size = max(3, int(self.pulse_approx_transition))
         if pulse_window_size % 2 == 0:
             pulse_window_size += 1
-        self.pulse_filter_kernel = (
-            np.ones(pulse_window_size, dtype=np.float64) / pulse_window_size
-        )
+        self.pulse_filter_kernel = np.ones(pulse_window_size, dtype=np.float64) / pulse_window_size
 
         # get_timings() runs for every field, but these conversions all use
         # the same default line frequency and fixed format parameters.
@@ -752,12 +746,10 @@ class VHSRFDecode(ldd.RFDecode):
             "vsync_plus_1": (self.SysParams["vsyncPulseUS"] + 1.0) * default_linefreq,
             "vhs_hsync_minus_0_7": -0.7 * default_linefreq,
             "vhs_hsync_plus_0_7": 0.7 * default_linefreq,
-            "vhs_eq_min": (
-                self.SysParams["eqPulseUS"] - vhs_formats.EQ_PULSE_TOLERANCE
-            ) * default_linefreq,
-            "vhs_eq_max": (
-                self.SysParams["eqPulseUS"] + vhs_formats.EQ_PULSE_TOLERANCE
-            ) * default_linefreq,
+            "vhs_eq_min": (self.SysParams["eqPulseUS"] - vhs_formats.EQ_PULSE_TOLERANCE)
+            * default_linefreq,
+            "vhs_eq_max": (self.SysParams["eqPulseUS"] + vhs_formats.EQ_PULSE_TOLERANCE)
+            * default_linefreq,
         }
 
         # Make (intentionally) mutable copies of HZ<->IRE levels
@@ -1363,9 +1355,7 @@ class VHSRFDecode(ldd.RFDecode):
             hilbert = npfft.ifft(indata_fft * self.Filters["hilbert"])
             raw_filtered = hilbert.real.astype(np.single)
         else:
-            raw_filtered = npfft.ifft(
-                indata_fft * self.Filters["hilbert"]
-            ).real.astype(np.single)
+            raw_filtered = npfft.ifft(indata_fft * self.Filters["hilbert"]).real.astype(np.single)
 
         # Calculate an evelope with signal strength using absolute of hilbert transform.
         # Roll this a bit to compensate for filter delay, value eyballed for now.

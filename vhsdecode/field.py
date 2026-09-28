@@ -2287,7 +2287,7 @@ class FieldNTSCShared(FieldShared, ldd.FieldNTSC):
                     FieldNTSCShared._sync_to_burst(
                         linelocs,
                         self.outlinelen,
-                        self.rf.fsc_hz,
+                    self.rf.fsc_hz,
                         self.fsc_ratio,
                         self.burst_phase_avg,
                         self.phase_sequence,
@@ -2298,7 +2298,7 @@ class FieldNTSCShared(FieldShared, ldd.FieldNTSC):
                     FieldPALShared._sync_to_burst(
                         linelocs,
                         self.outlinelen,
-                        self.rf.fsc_hz,
+                    self.rf.fsc_hz,
                         self.fsc_ratio,
                         self.even_burst_phase_avg,
                         self.odd_burst_phase_avg,

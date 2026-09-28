@@ -1837,7 +1837,9 @@ def process_chroma(
         # shift the chroma to reverse group delay caused by the color under heterodyne filter
         # this is dependent on color framing, and is disabled if color framing is disabled
         # TODO: shift amount may need tuning / needs validation
-        chroma_subcarrier_delay_cycles = field.rf.fsc_hz / (2.0 * np.pi * field.rf.DecoderParams["color_under_carrier"])
+        chroma_subcarrier_delay_cycles = field.rf.fsc_hz / (
+            2.0 * np.pi * field.rf.DecoderParams["color_under_carrier"]
+        )
         chroma_subcarrier_delay_samples = chroma_subcarrier_delay_cycles * 4
         chroma, _, _ = ldd.Field.downscale(
             field,
