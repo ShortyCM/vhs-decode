@@ -1,6 +1,5 @@
 import copy
 import itertools
-import multiprocessing
 import os
 import platform
 import sqlite3
@@ -29,7 +28,7 @@ from . import efm_pll
 from . import ac3rf
 from .utils import ldf_pipe, traceback
 from .utils import nb_mean, nb_median, nb_round, nb_min, nb_max, nb_abs, nb_absmax, n_orgt
-from .utils import polar2z, sqsum, genwave, dsa_rescale_and_clip, scale, scale_field, rms
+from .utils import polar2z, sqsum, genwave, dsa_rescale_and_clip, scale, scale_field, scale_field_prepare, scale_field_apply, rms
 from .utils import findpeaks, findpulses, calczc, inrange, roundfloat
 from .utils import LRUupdate, clb_findbursts, angular_mean_helper, phase_distance
 from .utils import build_hilbert, unwrap_hilbert, emphasis_iir, filtfft
@@ -1116,15 +1115,9 @@ class RFDecode:
 
 
 ''' The DemodCache class keeps track of each block of data, from the raw
-    input to the demodulated output.  Demodulation runs in worker processes;
-    a coordinator thread receives their results and updates the cache.
+    input to the demodulated output.  This is threaded code and therefore
+    a bit of a mess, full of queues and locks and memory copies.
 '''
-
-
-def _run_demodcache_worker(worker):
-    """Run a minimal, pickle-safe cache worker in a child process."""
-    worker._initialize_worker()
-    worker.worker()
 
 class DemodCache:
     def __init__(
@@ -1160,33 +1153,8 @@ class DemodCache:
 
         self.blocks          = {}
 
-        # Demodulation is CPU-bound.  Python threads would contend for the GIL
-        # and restrict this work to one CPU core, so each worker must be a
-        # separate process with its own interpreter and GIL.  A minimal worker
-        # copy works with every multiprocessing start method and prevents spawn
-        # and forkserver from trying to pickle the cache's input file, loader,
-        # locks, or parent decoder through the bound worker method.
-        if num_worker_threads:
-            self._process_context = multiprocessing.get_context()
-            # A multiprocessing.Queue has one parent-side feeder thread.  DEMOD
-            # messages contain an entire RF block, so that feeder can take
-            # longer to pickle/publish one message than a worker takes to
-            # demodulate it.  With a shared input queue the worker which just
-            # finished consequently receives the next message too, while the
-            # other processes remain idle.  Give every worker its own queue so
-            # large blocks are transported independently and assign work in a
-            # round-robin.  This also makes the requested process parallelism
-            # explicit rather than relying on Queue reader wake-up fairness.
-            self.worker_queues = [
-                self._process_context.Queue() for _ in range(num_worker_threads)
-            ]
-            self.q_in = self.worker_queues[0]
-            self.q_out = self._process_context.Queue()
-        else:
-            self._process_context = None
-            self.q_in = Queue()
-            self.worker_queues = [self.q_in]
-            self.q_out = Queue()
+        self.q_in            = Queue()
+        self.q_out           = Queue()
         self.waiting         = set()
         self.sync_waiting    = set()
         self.q_out_cv        = threading.Condition(self.lock)
@@ -1195,7 +1163,6 @@ class DemodCache:
         self.threads         = []
 
         self.request         = 0
-        self._next_worker    = 0
         self.ended           = False
 
         self.loader_lock   = threading.Lock()
@@ -1204,54 +1171,19 @@ class DemodCache:
         self.num_worker_threads = num_worker_threads
 
         for i in range(num_worker_threads):
-            worker = self._make_worker_copy()
-            worker.q_in = self.worker_queues[i]
-            t = self._process_context.Process(
-                target=_run_demodcache_worker, args=(worker,), daemon=True
+            t = threading.Thread(
+                target=self.worker, daemon=True, args=()
             )
             t.start()
             self.threads.append(t)
 
         self.deqeue_thread.start()
 
-    def _make_worker_copy(self):
-        """Return only the state required by ``worker`` in another process."""
-        worker = self.__class__.__new__(self.__class__)
-        worker.q_in = self.q_in
-        worker.q_out = self.q_out
-        worker.MTF_tolerance = self.MTF_tolerance
-        # The lightweight object does not own queues or threads; prevent its
-        # destructor from running the parent cache shutdown path.
-        worker.ended = True
-
-        # Copy only the decoder state needed on the worker side. Subclasses
-        # with a larger RF object graph can define a narrower process boundary.
-        worker.rf = self._make_worker_rf_copy()
-        return worker
-
-    def _make_worker_rf_copy(self):
-        """Return the RF state needed by a demodulation worker.
-
-        Subclasses can narrow this process boundary when their RF decoder owns
-        unrelated or process-local state.
-        """
-        worker_rf = copy.copy(self.rf)
-        worker_rf.__dict__ = self.rf.__dict__.copy()
-        worker_rf.__dict__.pop("decoder", None)
-        worker_rf.__dict__.pop("_processing_thread_pool", None)
-        return worker_rf
-
-    def _initialize_worker(self):
-        """Initialize process-local resources before processing queue items."""
-        pass
-
     def end(self):
-        # A failed spawn may ask Python to destroy an object before __init__ has
-        # restored any state.  It does not own workers in that case.
-        if not getattr(self, "ended", True):
+        if not self.ended:
             # stop workers
-            for worker_queue in self.worker_queues:
-                worker_queue.put(None)
+            for i in self.threads:
+                self.q_in.put(None)
 
             for t in self.threads:
                 t.join()
@@ -1264,18 +1196,8 @@ class DemodCache:
                 self.loader._close()
             self.ended = True
 
-    def _queue_work(self, item):
-        """Send one job to a specific worker, distributing consecutive jobs."""
-        worker_queue = self.worker_queues[self._next_worker]
-        self._next_worker = (self._next_worker + 1) % len(self.worker_queues)
-        worker_queue.put(item)
-
     def __del__(self):
-        # Queue.put() may need to start its feeder thread, which Python forbids
-        # once interpreter shutdown has begun.  Normal callers close the cache
-        # explicitly; finalization is only a best-effort fallback.
-        if not sys.is_finalizing():
-            self.end()
+        self.end()
 
     def prune_cache(self):
         """ Prune the LRU cache.  Typically run when a new field is loaded """
@@ -1408,13 +1330,6 @@ class DemodCache:
                     if not prefetch:
                         self.waiting.add(b)
 
-        # Fill the input blocks before publishing any DEMOD work.  The loader
-        # is necessarily serialized (streaming loaders carry state).  Once the
-        # batch is ready, _queue_work assigns its blocks to the independent
-        # worker queues; their feeder threads can then transport those large
-        # arrays concurrently rather than serializing every block through one
-        # multiprocessing.Queue feeder.
-        loaded_blocks = []
         for b in queuelist:
             if reached_end:
                 break
@@ -1436,9 +1351,6 @@ class DemodCache:
 
                     self.blocks[b]['rawinput'] = rawdata
 
-            loaded_blocks.append(b)
-
-        for b in loaded_blocks:
             with self.lock:
                 self.blocks[b]['MTF']      = MTF
                 self.blocks[b]['request']  = self.request
@@ -1446,14 +1358,9 @@ class DemodCache:
                 self.blocks[b]['prefetch'] = prefetch
                 if not prefetch:
                     self.waiting.add(b)
-                self._queue_work(("DEMOD", b, self.blocks[b], MTF, self.request))
-                self._trace_demod_job_queued(b, self.request)
+                self.q_in.put(("DEMOD", b, self.blocks[b], MTF, self.request))
 
         return None if reached_end else need_blocks
-
-    def _trace_demod_job_queued(self, blocknum, request):
-        """Hook for format-specific diagnostics in the coordinator process."""
-        return None
 
     def _load_raw_block(self, blocknum):
         """Return a cached raw block without scheduling full demodulation."""
@@ -1495,7 +1402,7 @@ class DemodCache:
                 block = self.blocks[blocknum]
                 if "sync" not in block and blocknum not in self.sync_waiting:
                     self.sync_waiting.add(blocknum)
-                    self._queue_work(("SYNC", blocknum, block))
+                    self.q_in.put(("SYNC", blocknum, block))
 
         while True:
             if self.num_worker_threads == 0:
@@ -1544,8 +1451,6 @@ class DemodCache:
             if rv is None:
                 return
 
-            self._trace_demod_result_received(rv)
-
             with self.lock:
                 blocknum, item = rv
 
@@ -1564,15 +1469,7 @@ class DemodCache:
                     logger.error(
                         "incomplete demodulated block placed on queue, block #%d", blocknum
                     )
-                    self._queue_work(
-                        (
-                            "DEMOD",
-                            blocknum,
-                            self.blocks[blocknum],
-                            self.currentMTF,
-                            self.request,
-                        )
-                    )
+                    self.q_in.put((blocknum, self.blocks[blocknum], self.currentMTF, self.request))
                     continue
 
                 if item['request'] == self.blocks[blocknum]['request']:
@@ -1592,10 +1489,6 @@ class DemodCache:
                     self.blocks[blocknum]["input"] = self.blocks[blocknum]["rawinput"][
                         self.rf.blockcut : -self.rf.blockcut_end
                     ]
-
-    def _trace_demod_result_received(self, result):
-        """Hook for format-specific diagnostics in the coordinator process."""
-        return None
 
     @profile
     def read(self, begin, length, MTF=0, getraw = False, forceredo=False):
@@ -1670,8 +1563,8 @@ class DemodCache:
         return rv
 
     def setparams(self, params):
-        for worker_queue in self.worker_queues:
-            worker_queue.put(("NEWPARAMS", params))
+        for p in self.threadpipes:
+            p[0].send(("NEWPARAMS", params))
 
         # Apply params to the core thread, so they match up with the decoders
         self.apply_newparams(params)
@@ -2017,13 +1910,30 @@ class Field:
     @profile
     def get_timings(self):
         pulses = self.rawpulses
-        hsync_typical = self.usectoinpx(self.rf.SysParams["hsyncPulseUS"])
+        fixed_timing_px = getattr(self.rf, "fixed_timing_px", None)
+        if fixed_timing_px is None:
+            hsync_typical = self.usectoinpx(self.rf.SysParams["hsyncPulseUS"])
+            hsync_checkmin = self.usectoinpx(self.rf.SysParams["hsyncPulseUS"] - 1.75)
+            hsync_checkmax = self.usectoinpx(self.rf.SysParams["hsyncPulseUS"] + 2)
+            hsync_minus_0_5 = self.usectoinpx(-0.5)
+            hsync_plus_0_5 = self.usectoinpx(0.5)
+            eq_minus_0_5 = self.usectoinpx(self.rf.SysParams["eqPulseUS"] - 0.5)
+            eq_plus_0_5 = self.usectoinpx(self.rf.SysParams["eqPulseUS"] + 0.5)
+            vsync_half = self.usectoinpx(self.rf.SysParams["vsyncPulseUS"] * 0.5)
+            vsync_plus_1 = self.usectoinpx(self.rf.SysParams["vsyncPulseUS"] + 1)
+        else:
+            hsync_typical = fixed_timing_px["hsync_typical"]
+            hsync_checkmin = fixed_timing_px["hsync_checkmin"]
+            hsync_checkmax = fixed_timing_px["hsync_checkmax"]
+            hsync_minus_0_5 = fixed_timing_px["hsync_minus_0_5"]
+            hsync_plus_0_5 = fixed_timing_px["hsync_plus_0_5"]
+            eq_minus_0_5 = fixed_timing_px["eq_minus_0_5"]
+            eq_plus_0_5 = fixed_timing_px["eq_plus_0_5"]
+            vsync_half = fixed_timing_px["vsync_half"]
+            vsync_plus_1 = fixed_timing_px["vsync_plus_1"]
 
         # Some disks have odd sync levels resulting in short and/or long pulse lengths.
         # So, take the median hsync and adjust the expected values accordingly
-
-        hsync_checkmin = self.usectoinpx(self.rf.SysParams["hsyncPulseUS"] - 1.75)
-        hsync_checkmax = self.usectoinpx(self.rf.SysParams["hsyncPulseUS"] + 2)
 
         hlens = []
         for p in pulses:
@@ -2031,36 +1941,25 @@ class Field:
                 hlens.append(p.len)
 
         LT = {}
-        LT = {}
         if len(hlens) > 0:
             LT["hsync_median"] = np.median(hlens)
         else:
             LT["hsync_median"] = self.rf.SysParams["hsyncPulseUS"]
 
-        hsync_min = LT["hsync_median"] + self.usectoinpx(-0.5)
-        hsync_max = LT["hsync_median"] + self.usectoinpx(0.5)
+        hsync_min = LT["hsync_median"] + hsync_minus_0_5
+        hsync_max = LT["hsync_median"] + hsync_plus_0_5
 
         LT["hsync"] = (hsync_min, hsync_max)
 
         LT["hsync_offset"] = LT["hsync_median"] - hsync_typical
 
-        # ??? - replace self.usectoinpx with local timings?
-        eq_min = (
-            self.usectoinpx(self.rf.SysParams["eqPulseUS"] - 0.5) + LT["hsync_offset"]
-        )
-        eq_max = (
-            self.usectoinpx(self.rf.SysParams["eqPulseUS"] + 0.5) + LT["hsync_offset"]
-        )
+        eq_min = eq_minus_0_5 + LT["hsync_offset"]
+        eq_max = eq_plus_0_5 + LT["hsync_offset"]
 
         LT["eq"] = (eq_min, eq_max)
 
-        vsync_min = (
-            self.usectoinpx(self.rf.SysParams["vsyncPulseUS"] * 0.5)
-            + LT["hsync_offset"]
-        )
-        vsync_max = (
-            self.usectoinpx(self.rf.SysParams["vsyncPulseUS"] + 1) + LT["hsync_offset"]
-        )
+        vsync_min = vsync_half + LT["hsync_offset"]
+        vsync_max = vsync_plus_1 + LT["hsync_offset"]
 
         LT["vsync"] = (vsync_min, vsync_max)
 
@@ -2850,11 +2749,38 @@ class Field:
            and scale input samples to output samples
         """
         actual_linelocs = np.array(self.linelocs, dtype=np.float64)
-        expected_linelocs = np.array([i * self.inlinelen for i in range(len(actual_linelocs))], dtype=np.float64)
 
         outscale = self.inlinelen / self.outlinelen
         outsamples = self.outlinecount * self.outlinelen
         outline_offset = (self.lineoffset + 1) * self.outlinelen
+
+        # These coordinate grids depend only on fixed field geometry, not on
+        # the measured line locations. computewow_scaled() runs more than once
+        # per field, and the same grids are also rebuilt for every following
+        # field, so retain them on the RF decoder and reuse them while the
+        # geometry is unchanged.
+        grid_key = (
+            len(actual_linelocs),
+            self.inlinelen,
+            self.outlinelen,
+            self.outlinecount,
+            self.lineoffset,
+        )
+        grid_cache = getattr(self.rf, "_computewow_grid_cache", None)
+        if grid_cache is not None and grid_cache[0] == grid_key:
+            expected_linelocs = grid_cache[1]
+            scaled_pixel_locs = grid_cache[2]
+        else:
+            expected_linelocs = np.array(
+                [i * self.inlinelen for i in range(len(actual_linelocs))],
+                dtype=np.float64,
+            )
+            scaled_pixel_locs = np.arange(outsamples + outline_offset) * outscale
+            self.rf._computewow_grid_cache = (
+                grid_key,
+                expected_linelocs,
+                scaled_pixel_locs,
+            )
 
         if self.wow_interpolation_method == 'linear':
             k=1
@@ -2868,9 +2794,6 @@ class Field:
 
         # create a spline that interpolates the exact sample value based on expected vs. actual line locations
         spl = interpolate.make_interp_spline(expected_linelocs, actual_linelocs, k=k, bc_type=bc_type, check_finite=False)
-
-        # scale up to compute where the output pixel would fall on the interpolated line loc
-        scaled_pixel_locs = np.arange(outsamples + outline_offset) * outscale
 
         # interpolate the expected pixel location
         self.interpolated_pixel_locs = spl(scaled_pixel_locs)
@@ -2889,7 +2812,8 @@ class Field:
         audio=0,
         final=False,
         lastfieldwritten=None,
-        shift: float = 0.0
+        shift: float = 0.0,
+        reuse_scale_state: bool = False
     ):
         if lineinfo is None:
             lineinfo = self.linelocs
@@ -2947,17 +2871,33 @@ class Field:
                 downscale_audio(*dsa_args)
 
         dsout = np.zeros((linesout * outwidth), dtype=np.float32)
-        interpolated_pixel_locs, wowfactors = self.computewow_scaled()
-        scale_field(
+        if (
+            reuse_scale_state
+            and hasattr(self, "interpolated_pixel_locs")
+            and hasattr(self, "wowfactors")
+            and hasattr(self, "_scale_field_level_adjusts")
+        ):
+            interpolated_pixel_locs = self.interpolated_pixel_locs
+            wowfactors = self.wowfactors
+            level_adjusts = self._scale_field_level_adjusts
+        else:
+            interpolated_pixel_locs, wowfactors = self.computewow_scaled()
+            level_adjusts = scale_field_prepare(
+                wowfactors,
+                outwidth,
+                self.wow_level_adjust_smoothing,
+            )
+            self._scale_field_level_adjusts = level_adjusts
+
+        scale_field_apply(
             self.data["video"][channel].astype(np.float32, copy=False),
             dsout,
             interpolated_pixel_locs,
-            wowfactors,
+            level_adjusts,
             self.rf.downscale_sinc_lut,
             self.lineoffset,
             outwidth,
-            wow_level_adjust_smoothing=self.wow_level_adjust_smoothing,
-            shift=shift
+            shift
         )
 
         if self.rf.decode_digital_audio:
@@ -3013,23 +2953,40 @@ class Field:
     def decodephillipscode(self, linenum):
         linestart = self.linelocs[linenum]
         data = self.data["video"]["demod"]
+        ire50_hz = self.rf.iretohz(50)
+        phillips_timing_px = getattr(self.rf, "phillips_timing_px", None)
+        if phillips_timing_px is None:
+            half_usec = self.usectoinpx(0.5)
+            next_zc_offset = self.usectoinpx(1.9)
+            next_zc_count = int(self.usectoinpx(0.2))
+            first_zc_offset = self.usectoinpx(2)
+            first_zc_count = int(self.usectoinpx(12))
+        else:
+            (
+                half_usec,
+                next_zc_offset,
+                next_zc_count,
+                first_zc_offset,
+                first_zc_count,
+            ) = phillips_timing_px
+
         curzc = calczc(
             data,
-            int(linestart + self.usectoinpx(2)),
-            self.rf.iretohz(50),
-            count=int(self.usectoinpx(12)),
+            int(linestart + first_zc_offset),
+            ire50_hz,
+            count=first_zc_count,
         )
 
         zc = []
         while curzc is not None:
             zc.append(
-                (curzc, data[int(curzc - self.usectoinpx(0.5))] < self.rf.iretohz(50))
+                (curzc, data[int(curzc - half_usec)] < ire50_hz)
             )
             curzc = calczc(
                 data,
-                curzc + self.usectoinpx(1.9),
-                self.rf.iretohz(50),
-                count=int(self.usectoinpx(0.2)),
+                curzc + next_zc_offset,
+                ire50_hz,
+                count=next_zc_count,
             )
 
         usecgap = self.inpxtousec(np.diff([z[0] for z in zc]))
@@ -4758,11 +4715,12 @@ class LDdecode:
 
         for l in f.rf.SysParams["LD_VITS_whitelocs"]:
             wl_slice = f.lineslice_tbc(*l)
-            # logger.info(l, np.mean(f.output_to_ire(f.dspicture[wl_slice])))
-            if inrange(np.mean(f.output_to_ire(f.dspicture[wl_slice])), 90, 110):
+            white_ire = np.mean(f.output_to_ire(f.dspicture[wl_slice]))
+            # logger.info(l, white_ire)
+            if inrange(white_ire, 90, 110):
                 f.whitesnr_slice = l
                 metrics["wSNR"] = self.calcpsnr(f, wl_slice)
-                metrics["whiteIRE"] = np.mean(f.output_to_ire(f.dspicture[wl_slice]))
+                metrics["whiteIRE"] = white_ire
 
                 rawslice = f.lineslice(*l)
                 rawdata = f.rawdata[

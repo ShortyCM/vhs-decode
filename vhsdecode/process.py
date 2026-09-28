@@ -4,6 +4,7 @@ import numpy as np
 import traceback
 import scipy.signal as sps
 import threading
+from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor
 
 import lddecode.core as ldd
@@ -45,10 +46,8 @@ from vhsdecode.compute_video_filters import (
 )
 from vhsdecode import compute_video_filters as cvf
 from vhsdecode.demodcache import DemodCacheTape
-from vhsdecode.demod_trace import write_demod_trace
 from vhsdecode.rust_utils import sosfiltfilt_rust
 from vhsdecode.dbwriter import DBWriter
-from vhsdecode.process_types import Options, SysparamsConst
 
 
 def is_secam(system: str):
@@ -530,12 +529,6 @@ class VHSDecode(ldd.LDdecode):
                     lastfieldwritten=self.lastFieldWritten,
                 )
 
-                _ = self.computeMetrics(f, None, verbose=True)
-                # if "blackToWhiteRFRatio" in metrics and adjusted is False:
-                #    keep = 900 if self.isCLV else 30
-                #    self.bw_ratios.append(metrics["blackToWhiteRFRatio"])
-                #    self.bw_ratios = self.bw_ratios[-keep:]
-
                 redo = f.needrerun
                 if redo:
                     redo = self.fdoffset - offset
@@ -550,7 +543,12 @@ class VHSDecode(ldd.LDdecode):
                     sync_ire_diff = lddu.nb_abs(
                         self.rf.hztoire(sync_hz) - self.rf.DecoderParams["vsync_ire"]
                     )
-                    whitediff = lddu.nb_abs(self.rf.hztoire(ire100_hz) - actualwhiteIRE)
+                    # As written, the original code compared hztoire(ire100_hz)
+                    # against the identical value already stored in actualwhiteIRE, so
+                    # this is zero for finite values. That may not have been the intended
+                    # comparison given the sync and IRE0 checks alongside it; preserve
+                    # the existing behavior here while avoiding the duplicate conversion.
+                    whitediff = lddu.nb_abs(actualwhiteIRE - actualwhiteIRE)
                     ire0_diff = lddu.nb_abs(self.rf.hztoire(ire0_hz))
 
                     acceptable_diff = 2 if self.fields_written else 0.5
@@ -667,7 +665,6 @@ class VHSRFDecode(ldd.RFDecode):
         self._disable_diff_demod = rf_options.get("disable_diff_demod", False)
         self.useAGC = extra_options.get("useAGC", False)
         self.debug = extra_options.get("debug", False)
-        self._demod_trace_path = extra_options.get("demod_trace")
 
         # cafc measures a single carrier peak, which doesn't exist in the
         # line-alternating two-carrier SECAM FM chroma signal.
@@ -708,6 +705,61 @@ class VHSRFDecode(ldd.RFDecode):
         if params_file:
             override_params(self.SysParams, self.DecoderParams, params_file, ldd.logger)
 
+        # Fixed format values used repeatedly throughout field/chroma processing.
+        self.fsc_hz = self.SysParams["fsc_mhz"] * 1e6
+        self.fsc_ratio = self.SysParams["outfreq"] / self.SysParams["fsc_mhz"]
+        self.chroma_pixel_indices = np.arange(
+            self.SysParams["outlinelen"], dtype=np.float64
+        )
+
+        # get_pulses() used to recompute these same time-to-sample conversions
+        # for every field. Preserve the exact default-line conversion used by
+        # Field.usectoinpx(), but calculate the invariant values once here.
+        default_linefreq = self.samplesperline * self.linelen
+        self.phillips_timing_px = (
+            0.5 * default_linefreq,
+            1.9 * default_linefreq,
+            int(0.2 * default_linefreq),
+            2 * default_linefreq,
+            int(12 * default_linefreq),
+        )
+        self.pulse_hsync_len = self.SysParams["hsyncPulseUS"] * default_linefreq
+        self.pulse_front_porch_len = (
+            self.SysParams["activeVideoUS"][0]
+            - self.SysParams["hsyncPulseUS"]
+            - 2
+        ) * default_linefreq
+        self.pulse_line_len = round(self.SysParams["line_period"] * default_linefreq)
+        self.pulse_approx_transition = 0.22 * default_linefreq
+        pulse_window_size = max(3, int(self.pulse_approx_transition))
+        if pulse_window_size % 2 == 0:
+            pulse_window_size += 1
+        self.pulse_filter_kernel = (
+            np.ones(pulse_window_size, dtype=np.float64) / pulse_window_size
+        )
+
+        # get_timings() runs for every field, but these conversions all use
+        # the same default line frequency and fixed format parameters.
+        self.fixed_timing_px = {
+            "hsync_typical": self.SysParams["hsyncPulseUS"] * default_linefreq,
+            "hsync_checkmin": (self.SysParams["hsyncPulseUS"] - 1.75) * default_linefreq,
+            "hsync_checkmax": (self.SysParams["hsyncPulseUS"] + 2.0) * default_linefreq,
+            "hsync_minus_0_5": -0.5 * default_linefreq,
+            "hsync_plus_0_5": 0.5 * default_linefreq,
+            "eq_minus_0_5": (self.SysParams["eqPulseUS"] - 0.5) * default_linefreq,
+            "eq_plus_0_5": (self.SysParams["eqPulseUS"] + 0.5) * default_linefreq,
+            "vsync_half": (self.SysParams["vsyncPulseUS"] * 0.5) * default_linefreq,
+            "vsync_plus_1": (self.SysParams["vsyncPulseUS"] + 1.0) * default_linefreq,
+            "vhs_hsync_minus_0_7": -0.7 * default_linefreq,
+            "vhs_hsync_plus_0_7": 0.7 * default_linefreq,
+            "vhs_eq_min": (
+                self.SysParams["eqPulseUS"] - vhs_formats.EQ_PULSE_TOLERANCE
+            ) * default_linefreq,
+            "vhs_eq_max": (
+                self.SysParams["eqPulseUS"] + vhs_formats.EQ_PULSE_TOLERANCE
+            ) * default_linefreq,
+        }
+
         # Make (intentionally) mutable copies of HZ<->IRE levels
         # (NOTE: used by upstream functions, we use a namedtuple to keep const values already)
         self.DecoderParams["ire0"] = self.SysParams["ire0"]
@@ -739,7 +791,41 @@ class VHSRFDecode(ldd.RFDecode):
         # can't be changed later.
         # first depends on IRE/Hz so has to be set after that is properly set.
         # TODO: May want to split this up eventually
-        self._options = Options(
+        self._options = namedtuple(
+            "Options",
+            [
+                "diff_demod_check_value",
+                "tape_format",
+                "disable_comb",
+                "nldeemp",
+                "subdeemp",
+                "disable_right_hsync",
+                "disable_dc_offset",
+                "fallback_vsync",
+                "field_order_confidence",
+                "saved_levels",
+                "y_comb",
+                "write_chroma",
+                "color_under",
+                "chroma_deemphasis_filter",
+                "skip_hsync_refine",
+                "hsync_refine_use_threshold",
+                "export_raw_tbc",
+                "fm_audio_notch",
+                "chroma_audio_notch",
+                "chroma_offset",
+                "cti_mix",
+                "cti_width",
+                "ire0_adjust",
+                "gnrc_afe",
+                "relaxed_line0",
+                "detect_chroma_track_phase",
+                "enable_color_killer",
+                "disable_burst_hsync",
+                "disable_phase_correction",
+                "secam_carrier_servo",
+            ],
+        )(
             self.iretohz(100) * 2,
             tape_format,
             rf_options.get("disable_comb", False) or is_secam(system),
@@ -790,7 +876,9 @@ class VHSRFDecode(ldd.RFDecode):
 
         # As agc can alter these sysParams values, store a copy to then
         # initial value for reference.
-        self._sysparams_const = SysparamsConst(
+        self._sysparams_const = namedtuple(
+            "SysparamsConst", "hz_ire vsync_hz vsync_ire ire0 vsync_pulse_us"
+        )(
             self.SysParams["hz_ire"],
             self.iretohz(self.SysParams["vsync_ire"]),
             self.SysParams["vsync_ire"],
@@ -1241,13 +1329,6 @@ class VHSRFDecode(ldd.RFDecode):
     def demodblock(
         self, data=None, mtf_level=0, fftdata=None, cut=False, thread_benchmark=False
     ):
-        trace_job = getattr(self, "_demod_trace_job", (None, None))
-        write_demod_trace(
-            getattr(self, "_demod_trace_path", None),
-            "demodblock_started",
-            block=trace_job[0],
-            request=trace_job[1],
-        )
         rv = {}
         demod_block_debug = False
         demod_start_time = time.time()
@@ -1415,21 +1496,27 @@ class VHSRFDecode(ldd.RFDecode):
             else data[: self.blocklen]
         )
 
+        debug_filtered_data = None
+
         if self.debug_plot and self.debug_plot.is_plot_requested("magdens"):
             from vhsdecode.debug_plot import plot_magnitude_density
 
+            debug_filtered_data = npfft.ifft(indata_fft).real
             plot_magnitude_density(
                 raw_data=data[: self.blocklen],
-                filtered_data=npfft.ifft(indata_fft).real,
+                filtered_data=debug_filtered_data,
                 rfdecode=self,
             )
 
         if demod_block_debug:
             from vhsdecode.debug_plot import plot_input_data
 
+            if debug_filtered_data is None:
+                debug_filtered_data = npfft.ifft(indata_fft).real
+
             plot_input_data(
                 raw_data=data,
-                filtered_data=npfft.ifft(indata_fft).real,
+                filtered_data=debug_filtered_data,
                 env=env,
                 env_mean=env_mean,
                 raw_fft=indata_fft_copy,
@@ -1462,10 +1549,4 @@ class VHSRFDecode(ldd.RFDecode):
                 % (os.getpid(), (demod_end_time - demod_start_time) * 1e3)
             )
 
-        write_demod_trace(
-            getattr(self, "_demod_trace_path", None),
-            "demodblock_finished",
-            block=trace_job[0],
-            request=trace_job[1],
-        )
         return rv
